@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css">
+    <title>User Records</title>
+</head>
+<body>
+    <div class="container">
+        <h1 class="mt-4">User Records</h1>
+
+        <form id="searchForm" class="form-inline mt-4 mb-4">
+            <input type="text" class="form-control mr-2" id="searchQuery" placeholder="Search by name">
+            <button type="submit" class="btn btn-primary">Search</button>
+        </form>
+
+        <table class="table mt-4">
+            <thead>
+                <tr>
+                    <th scope="col">Age</th>
+                    <th scope="col">Name</th>
+                    <th scope="col">Weight</th>
+                    <th scope="col">Actions</th>
+                </tr>
+            </thead>
+            <tbody id="userList">
+                {{#users}}
+                <tr>
+                    <td>{{age}}</td>
+                    <td>{{name}}</td>
+                    <td>{{weight}}</td>
+                    <td>
+                        <button class="btn btn-secondary btn-sm" onclick="editUser('{{id}}', '{{age}}', '{{name}}', '{{weight}}')">Edit</button>
+                        <button class="btn btn-danger btn-sm" onclick="deleteUser('{{id}}')">Delete</button>
+                    </td>
+                </tr>
+                {{/users}}
+            </tbody>
+        </table>
+
+        <h2 class="mt-4" id="formTitle">Add User</h2>
+        <form id="addUserForm">
+            <input type="hidden" id="userId" name="id">
+            <div class="form-group">
+                <label for="age">Age:</label>
+                <input type="text" class="form-control" id="age" name="age">
+            </div>
+            <div class="form-group">
+                <label for="name">Name:</label>
+                <input type="text" class="form-control" id="name" name="name">
+            </div>
+            <div class="form-group">
+                <label for="weight">Weight:</label>
+                <input type="text" class="form-control" id="weight" name="weight">
+            </div>
+            <button type="submit" class="btn btn-primary">Submit</button>
+        </form>
+
+        <div id="message" class="mt-4"></div>
+    </div>
+
+    <script>
+        document.getElementById("searchForm").addEventListener("submit", function(event) {
+            event.preventDefault();
+
+            var query = document.getElementById("searchQuery").value;
+
+            var xhr = new XMLHttpRequest();
+            xhr.open("GET", "./search_user?query=" + query, true);
+            xhr.onreadystatechange = function () {
+                if (xhr.readyState === XMLHttpRequest.DONE) {
+                    if (xhr.status === 200) {
+                        var response = JSON.parse(xhr.responseText);
+                        var userList = document.getElementById("userList");
+                        userList.innerHTML = '';
+
+                        response.users.forEach(function(user) {
+                            var row = document.createElement("tr");
+
+                            var ageCell = document.createElement("td");
+                            ageCell.textContent = user.age;
+                            row.appendChild(ageCell);
+
+                            var nameCell = document.createElement("td");
+                            nameCell.textContent = user.name;
+                            row.appendChild(nameCell);
+
+                            var weightCell = document.createElement("td");
+                            weightCell.textContent = user.weight;
+                            row.appendChild(weightCell);
+
+                            var actionCell = document.createElement("td");
+
+                            var editButton = document.createElement("button");
+                            editButton.className = "btn btn-secondary btn-sm";
+                            editButton.textContent = "Edit";
+                            editButton.setAttribute("onclick", "editUser('" + user.id + "', '" + user.age + "', '" + user.name + "', '" + user.weight + "')");
+                            actionCell.appendChild(editButton);
+
+                            var deleteButton = document.createElement("button");
+                            deleteButton.className = "btn btn-danger btn-sm";
+                            deleteButton.textContent = "Delete";
+                            deleteButton.setAttribute("onclick", "deleteUser('" + user.id + "')");
+                            actionCell.appendChild(deleteButton);
+
+                            row.appendChild(actionCell);
+                            userList.appendChild(row);
+                        });
+                    } else {
+                        document.getElementById("message").innerText = "Error fetching search results.";
+                    }
+                }
+            };
+            xhr.send();
+        });
+
+        document.getElementById("addUserForm").addEventListener("submit", function(event) {
+            event.preventDefault(); // Prevent default form submission
+
+            // Get form data
+            var formData = new FormData(this);
+            var userId = document.getElementById("userId").value;
+
+            // Determine if we are adding or editing
+            var url = userId ? "./edit_user?" : "./add_user?";
+            if (userId) {
+                formData.append("id", userId);
+            }
+
+            // Send form data asynchronously to the server
+            var xhr = new XMLHttpRequest();
+            xhr.open("GET", url + new URLSearchParams(formData).toString(), true);
+            xhr.onreadystatechange = function () {
+                if (xhr.readyState === XMLHttpRequest.DONE) {
+                    if (xhr.status === 200) {
+                        // Success: Display message and refresh the current page
+                        document.getElementById("message").innerText = userId ? "User updated successfully." : "User added successfully.";
+                        setTimeout(function () {
+                            location.reload();
+                        }, 1000); // Refresh after 1 second
+                    } else {
+                        // Error: Display error message
+                        document.getElementById("message").innerText = userId ? "Error updating user." : "Error adding user.";
+                    }
+                }
+            };
+            xhr.send();
+        });
+
+        function editUser(id, age, name, weight) {
+            // Populate the form with the existing data
+            document.getElementById("userId").value = id;
+            document.getElementById("age").value = age;
+            document.getElementById("name").value = name;
+            document.getElementById("weight").value = weight;
+
+            // Change the form title to indicate editing
+            document.getElementById("formTitle").innerText = "Edit User";
+        }
+
+        function deleteUser(id) {
+            var xhr = new XMLHttpRequest();
+            xhr.open("GET", "./delete_user?id=" + id, true);
+            xhr.onreadystatechange = function () {
+                if (xhr.readyState === XMLHttpRequest.DONE) {
+                    if (xhr.status === 200) {
+                        document.getElementById("message").innerText = "User deleted successfully.";
+                        setTimeout(function () {
+                            location.reload();
+                        }, 1000);
+                    } else {
+                        document.getElementById("message").innerText = "Error deleting user.";
+                    }
+                }
+            };
+            xhr.send();
+        }
+    </script>
+</body>
+</html>
