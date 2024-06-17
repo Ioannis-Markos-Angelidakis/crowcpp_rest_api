@@ -28,3 +28,5 @@ clean:
 rebuild: clean all
 
 .PHONY: all clean rebuild
+
+#mingw32-make -f Makefile
