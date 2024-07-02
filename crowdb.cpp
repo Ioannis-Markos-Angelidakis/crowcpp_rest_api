@@ -1,6 +1,25 @@
 #include <sqlite_modern_cpp.h>
 #include <crow_all.h>
 #include <expected>
+#include <filesystem>
+
+namespace fs = std::filesystem;
+
+void display_image(crow::response& res, const std::string& filepath) {
+    std::ifstream file(filepath, std::ios::binary);
+    if (file) {
+        std::stringstream buffer;
+        buffer << file.rdbuf();
+        file.close();
+        res.add_header("Content-Length", std::to_string(buffer.str().size()));
+        res.write(buffer.str());
+        res.end();
+    } else {
+        res.code = 404;
+        res.write("File not found");
+        res.end();
+    }
+}
 
 std::expected<uint8_t, std::string> u8_validator(const std::string& age) {
     uintmax_t num;
@@ -19,7 +38,8 @@ void initialize_database(sqlite::database& db) {
        "   _id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,"
        "   age INT,"
        "   name TEXT,"
-       "   weight REAL"
+       "   weight REAL,"
+       "   profile_picture TEXT" 
        ");";
 
     db << "INSERT INTO user (age, name, weight) VALUES (?, ?, ?);"
@@ -37,52 +57,204 @@ int32_t main() {
     sqlite::database db("dbfile.db");
     initialize_database(db);
 
-    CROW_ROUTE(app, "/add_user")
-    ([&db](const crow::request& request) {
-        std::expected<uint8_t, crow::response> check_age = u8_validator(request.url_params.get("age"));
-        uint8_t age;
-        if (check_age) {
-            age = *check_age;
-        } else {
-            return crow::response(400, "INVALID AGE");
-        }
-
-        std::string name = request.url_params.get("name");
-        float weight = std::stof(request.url_params.get("weight"));
-
-        db << u"INSERT INTO user (age, name, weight) VALUES (?,?,?);"
-           << age << name << weight;
-
-        return crow::response(200, "OK");
+    CROW_ROUTE(app, "/profile_pictures/<string>")
+    ([](const crow::request& req, crow::response& res, std::string filename) {
+        std::string filepath = "./profile_pictures/" + filename; 
+        display_image(res, filepath);
     });
 
-    CROW_ROUTE(app, "/edit_user")
-    ([&db](const crow::request& request) {
-        uint32_t id = std::stoi(request.url_params.get("id"));
-        std::expected<uint8_t, crow::response> check_age = u8_validator(request.url_params.get("age"));
+    CROW_ROUTE(app, "/add_user").methods(crow::HTTPMethod::Post)([&db](const crow::request& request) {
+        crow::multipart::message file_message(request);
+
+        std::string name;
         uint8_t age;
-        if (check_age) {
-            age = *check_age;
-        } else {
-            return crow::response(400, "INVALID AGE");
+        float weight;
+        std::string profile_picture_path;  
+
+            for (const std::pair<const std::string, crow::multipart::part>& part : file_message.part_map) {
+                const  std::string& part_name = part.first;
+                const  crow::multipart::part& part_value = part.second;
+
+            if (part_name == "file") {
+                auto headers_it = part_value.headers.find("Content-Disposition");
+                if (headers_it == part_value.headers.end()) {
+                    return crow::response(400, "UPLOAD FAILED");
+                }
+
+                auto params_it = headers_it->second.params.find("filename");
+                if (params_it == headers_it->second.params.end()) {
+                    return crow::response(400);
+                }
+
+                std::string_view filename = params_it->second;
+
+                std::array valid_extensions{".jpg", ".jpeg", ".png", ".gif", ".bmp", ".tiff", ".webp", ".avif"};
+                bool valid_extension = false;
+                for (auto extension : valid_extensions) {
+                    if (filename.ends_with(extension)) {
+                        valid_extension = true;
+                        break;
+                    }
+                }
+                if (!valid_extension) {
+                    return crow::response(400, "FILE TYPE NOT ALLOWED");
+                }
+
+                std::string upload_dir = "./profile_pictures/";
+                fs::create_directories(upload_dir);
+                std::string unique_filename = upload_dir + std::string(filename);
+
+                if (fs::exists(unique_filename)) {
+                    return crow::response(400, "FILE EXISTS");
+                }
+
+                std::ofstream out_file(unique_filename, std::ios::out | std::ios::binary);
+                out_file.write(part_value.body.data(), part_value.body.length());
+                out_file.close();
+
+                profile_picture_path = unique_filename;
+            } else if (part_name == "age") {
+                std::expected<uint8_t, crow::response> check_age = u8_validator(part_value.body);
+                if (check_age) {
+                    age = *check_age;
+                } else {
+                    return crow::response(400, "INVALID AGE");
+                }
+            } else if (part_name == "name") {
+                name = part_value.body;
+            } else if (part_name == "weight") {
+                try {
+                    weight = std::stof(part_value.body);
+                } catch (const std::exception& e) {
+                    return crow::response(400, "INVALID WEIGHT");
+                }
+            }
         }
-        
-        std::string name = request.url_params.get("name");
-        float weight = std::stof(request.url_params.get("weight"));
 
-        db << u"UPDATE user SET age = ?, name = ?, weight = ? WHERE _id = ?;"
-           << age << name << weight << id;
+        db << "INSERT INTO user (age, name, weight, profile_picture) VALUES (?, ?, ?, ?);"
+        << age << name << weight << profile_picture_path;
 
-        return crow::response(200, "OK");
+        return crow::response(200, "USER CREATED SUCCESSFULLY");
+    });
+
+    CROW_ROUTE(app, "/edit_user").methods(crow::HTTPMethod::Post)([&db](const crow::request& request) {
+        crow::multipart::message file_message(request);
+
+        uint32_t id = std::stoi(request.url_params.get("id"));
+        std::string name;
+        uint8_t age;
+        float weight;
+        std::string profile_picture_path;
+
+        for (const std::pair<const std::string, crow::multipart::part>& part : file_message.part_map) {
+            const  std::string& part_name = part.first;
+            const  crow::multipart::part& part_value = part.second;
+
+            if (part_name == "file") {
+                auto headers_it = part_value.headers.find("Content-Disposition");
+                if (headers_it == part_value.headers.end()) {
+                    return crow::response(400, "UPLOAD FAILED");
+                }
+
+                auto params_it = headers_it->second.params.find("filename");
+                if (params_it == headers_it->second.params.end()) {
+                    return crow::response(400);
+                }
+
+                std::string_view filename = params_it->second;
+
+                std::array valid_extensions{".jpg", ".jpeg", ".png", ".gif", ".bmp", ".tiff", ".webp", ".avif"};
+                bool valid_extension = false;
+                for (auto extension : valid_extensions) {
+                    if (filename.ends_with(extension)) {
+                        valid_extension = true;
+                        break;
+                    }
+                }
+                if (!valid_extension) {
+                    return crow::response(400, "FILE TYPE NOT ALLOWED");
+                }
+
+                std::string upload_dir = "./profile_pictures/";
+                fs::create_directories(upload_dir);
+                std::string unique_filename = upload_dir + std::string(filename);
+
+                if (fs::exists(unique_filename)) {
+                    return crow::response(400, "FILE EXISTS");
+                }
+
+                std::ofstream out_file(unique_filename, std::ios::out | std::ios::binary);
+                out_file.write(part_value.body.data(), part_value.body.length());
+                out_file.close();
+
+                profile_picture_path = unique_filename;
+            } else if (part_name == "age") {
+                std::expected<uint8_t, crow::response> check_age = u8_validator(part_value.body);
+                if (check_age) {
+                    age = *check_age;
+                } else {
+                    return crow::response(400, "INVALID AGE");
+                }
+            } else if (part_name == "name") {
+                name = part_value.body;
+            } else if (part_name == "weight") {
+                try {
+                    weight = std::stof(part_value.body);
+                } catch (const std::exception& e) {
+                    return crow::response(400, "INVALID WEIGHT");
+                }
+            }
+        }
+
+        if (!profile_picture_path.empty()) {
+            std::string profile_picture_delete;
+
+            db << "SELECT profile_picture FROM user WHERE _id = ?;" << id
+            >> [&](const std::string& profile_picture) {
+                profile_picture_delete = profile_picture;
+            };
+
+            std::error_code error;
+            if (!profile_picture_path.empty() && fs::exists(profile_picture_delete)) {
+                fs::remove(profile_picture_delete, error);
+            } 
+            
+            if (error) {
+                return crow::response(500, "Error deleting profile picture");
+            }
+
+            db << "UPDATE user SET age = ?, name = ?, weight = ?, profile_picture = ? WHERE _id = ?;"
+            << age << name << weight << profile_picture_path << id;
+        } else {
+            db << "UPDATE user SET age = ?, name = ?, weight = ? WHERE _id = ?;"
+            << age << name << weight << id;
+        }
+
+        return crow::response(200, "USER UPDATED SUCCESSFULLY");
     });
 
     CROW_ROUTE(app, "/delete_user")
     ([&db](const crow::request& request) {
         uint32_t id = std::stoi(request.url_params.get("id"));
+        std::string profile_picture_path;
 
-        db << u"DELETE FROM user WHERE _id = ?;" << id;
+        db << "SELECT profile_picture FROM user WHERE _id = ?;" << id
+        >> [&](const std::string& profile_picture) {
+            profile_picture_path = profile_picture;
+        };
 
-        return crow::response(200, "OK");
+        db << "DELETE FROM user WHERE _id = ?;" << id;
+
+        std::error_code error;
+        if (!profile_picture_path.empty() && fs::exists(profile_picture_path)) {
+            fs::remove(profile_picture_path, error);
+        } 
+        
+        if (error) {
+            return crow::response(500, "Error deleting profile picture");
+        }
+
+        return crow::response(200, "User and profile picture deleted successfully");
     });
 
     CROW_ROUTE(app, "/")
@@ -91,12 +263,13 @@ int32_t main() {
         crow::json::wvalue json_data;
         std::vector<crow::json::wvalue> users;
 
-        db << "SELECT _id, age, name, weight FROM user;" >> [&users](const int32_t& id, const int32_t& age, const std::string& name, const float& weight) {
+        db << "SELECT _id, age, name, weight, profile_picture FROM user;" >> [&users](const int32_t& id, const int32_t& age, const std::string& name, const float& weight, const std::string& profile_picture) {
             crow::json::wvalue user;
             user["id"] = id;
             user["age"] = age;
             user["name"] = name;
             user["weight"] = weight;
+            user["profile_picture"] = profile_picture; 
             users.emplace_back(user);
         };
 
@@ -125,6 +298,6 @@ int32_t main() {
         return crow::response(json_data);
     });
 
-    app.bindaddr("192.168.2.7").port(18080).run();
+    app.bindaddr("192.168.0.21").port(18080).run();
 }
 //clang++ -Wall -Wextra -fsanitize=address crowdb.cpp -o crowdb -std=c++23 -lwsock32 -lws2_32 -lsqlite3
