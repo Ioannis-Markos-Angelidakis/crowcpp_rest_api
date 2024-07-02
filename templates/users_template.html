@@ -21,6 +21,7 @@
                     <th scope="col">Age</th>
                     <th scope="col">Name</th>
                     <th scope="col">Weight</th>
+                    <th scope="col">Profile Picture</th>
                     <th scope="col">Actions</th>
                 </tr>
             </thead>
@@ -31,6 +32,11 @@
                     <td>{{name}}</td>
                     <td>{{weight}}</td>
                     <td>
+                        {{#profile_picture}}
+                        <img src="{{profile_picture}}" alt="Profile Picture" style="max-width: 100px; border-radius: 50%; height: 80px; width: 31%">
+                        {{/profile_picture}}
+                    </td>
+                    <td>
                         <button class="btn btn-secondary btn-sm" onclick="editUser('{{id}}', '{{age}}', '{{name}}', '{{weight}}')">Edit</button>
                         <button class="btn btn-danger btn-sm" onclick="deleteUser('{{id}}')">Delete</button>
                     </td>
@@ -40,7 +46,7 @@
         </table>
 
         <h2 class="mt-4" id="formTitle">Add User</h2>
-        <form id="addUserForm">
+        <form id="userForm" enctype="multipart/form-data">
             <input type="hidden" id="userId" name="id">
             <div class="form-group">
                 <label for="age">Age:</label>
@@ -54,127 +60,98 @@
                 <label for="weight">Weight:</label>
                 <input type="text" class="form-control" id="weight" name="weight">
             </div>
-            <button type="submit" class="btn btn-primary">Submit</button>
+            <div class="form-group">
+                <label for="file">Profile Picture (Optional):</label>
+                <input type="file" class="form-control-file" id="file" name="file">
+            </div>
+            <button type="submit" class="btn btn-primary" id="submitButton">Add User</button>
+            <button type="button" class="btn btn-secondary ml-2" onclick="clearForm()">Clear</button>
         </form>
 
         <div id="message" class="mt-4"></div>
     </div>
 
     <script>
-        document.getElementById("searchForm").addEventListener("submit", function(event) {
+        const searchForm = document.getElementById("searchForm");
+        const userForm = document.getElementById("userForm");
+        const messageDiv = document.getElementById("message");
+        const userList = document.getElementById("userList");
+
+        searchForm.addEventListener("submit", function(event) {
             event.preventDefault();
+            const query = document.getElementById("searchQuery").value;
 
-            var query = document.getElementById("searchQuery").value;
-
-            var xhr = new XMLHttpRequest();
-            xhr.open("GET", "./search_user?query=" + query, true);
-            xhr.onreadystatechange = function () {
-                if (xhr.readyState === XMLHttpRequest.DONE) {
-                    if (xhr.status === 200) {
-                        var response = JSON.parse(xhr.responseText);
-                        var userList = document.getElementById("userList");
-                        userList.innerHTML = '';
-
-                        response.users.forEach(function(user) {
-                            var row = document.createElement("tr");
-
-                            var ageCell = document.createElement("td");
-                            ageCell.textContent = user.age;
-                            row.appendChild(ageCell);
-
-                            var nameCell = document.createElement("td");
-                            nameCell.textContent = user.name;
-                            row.appendChild(nameCell);
-
-                            var weightCell = document.createElement("td");
-                            weightCell.textContent = user.weight;
-                            row.appendChild(weightCell);
-
-                            var actionCell = document.createElement("td");
-
-                            var editButton = document.createElement("button");
-                            editButton.className = "btn btn-secondary btn-sm";
-                            editButton.textContent = "Edit";
-                            editButton.setAttribute("onclick", "editUser('" + user.id + "', '" + user.age + "', '" + user.name + "', '" + user.weight + "')");
-                            actionCell.appendChild(editButton);
-
-                            var deleteButton = document.createElement("button");
-                            deleteButton.className = "btn btn-danger btn-sm";
-                            deleteButton.textContent = "Delete";
-                            deleteButton.setAttribute("onclick", "deleteUser('" + user.id + "')");
-                            actionCell.appendChild(deleteButton);
-
-                            row.appendChild(actionCell);
-                            userList.appendChild(row);
-                        });
-                    } else {
-                        document.getElementById("message").innerText = "Error fetching search results.";
-                    }
-                }
-            };
-            xhr.send();
+            fetch(`./search_user?query=${query}`)
+                .then(response => response.json())
+                .then(data => updateUserList(data.users))
+                .catch(() => { messageDiv.innerText = "Error fetching search results."; });
         });
 
-        document.getElementById("addUserForm").addEventListener("submit", function(event) {
-            event.preventDefault(); // Prevent default form submission
-
-            // Get form data
-            var formData = new FormData(this);
-            var userId = document.getElementById("userId").value;
-
-            // Determine if we are adding or editing
-            var url = userId ? "./edit_user?" : "./add_user?";
-            if (userId) {
-                formData.append("id", userId);
+        userForm.addEventListener("submit", function(event) {
+            event.preventDefault();
+            const fileInput = document.getElementById('file');
+            if (fileInput.files.length <= 0) {
+                fileInput.removeAttribute('name');
             }
+            const formData = new FormData(userForm);
+            const userId = document.getElementById("userId").value;
+            const url = userId ? `./edit_user?id=${userId}` : "./add_user";
 
-            // Send form data asynchronously to the server
-            var xhr = new XMLHttpRequest();
-            xhr.open("GET", url + new URLSearchParams(formData).toString(), true);
-            xhr.onreadystatechange = function () {
-                if (xhr.readyState === XMLHttpRequest.DONE) {
-                    if (xhr.status === 200) {
-                        // Success: Display message and refresh the current page
-                        document.getElementById("message").innerText = userId ? "User updated successfully." : "User added successfully.";
-                        setTimeout(function () {
-                            location.reload();
-                        }, 1000); // Refresh after 1 second
-                    } else {
-                        // Error: Display error message
-                        document.getElementById("message").innerText = userId ? "Error updating user." : "Error adding user.";
-                    }
-                }
-            };
-            xhr.send();
+            fetch(url, {
+                method: "POST",
+                body: formData
+            })
+                .then(response => response.ok ? response.text() : Promise.reject())
+                .then(() => {
+                    messageDiv.innerText = userId ? "User updated successfully." : "User added successfully.";
+                    clearForm();
+                    setTimeout(() => location.reload(), 1000);
+                })
+                .catch(() => { messageDiv.innerText = userId ? "Error updating user." : "Error adding user."; });
         });
+
+        function updateUserList(users) {
+            userList.innerHTML = users.map(user => `
+                <tr>
+                    <td>${user.age}</td>
+                    <td>${user.name}</td>
+                    <td>${user.weight}</td>
+                    <td>
+                        ${user.profile_picture ? `<img src="${user.profile_picture}" alt="Profile Picture" style="max-width: 100px; border-radius: 50%; height: 80px; width: 31%">` : ''}
+                    </td>
+                    <td>
+                        <button class="btn btn-secondary btn-sm" onclick="editUser('${user.id}', '${user.age}', '${user.name}', '${user.weight}')">Edit</button>
+                        <button class="btn btn-danger btn-sm" onclick="deleteUser('${user.id}')">Delete</button>
+                    </td>
+                </tr>
+            `).join('');
+        }
 
         function editUser(id, age, name, weight) {
-            // Populate the form with the existing data
             document.getElementById("userId").value = id;
             document.getElementById("age").value = age;
             document.getElementById("name").value = name;
             document.getElementById("weight").value = weight;
-
-            // Change the form title to indicate editing
             document.getElementById("formTitle").innerText = "Edit User";
+            document.getElementById("submitButton").innerText = "Update User";
         }
 
         function deleteUser(id) {
-            var xhr = new XMLHttpRequest();
-            xhr.open("GET", "./delete_user?id=" + id, true);
-            xhr.onreadystatechange = function () {
-                if (xhr.readyState === XMLHttpRequest.DONE) {
-                    if (xhr.status === 200) {
-                        document.getElementById("message").innerText = "User deleted successfully.";
-                        setTimeout(function () {
-                            location.reload();
-                        }, 1000);
-                    } else {
-                        document.getElementById("message").innerText = "Error deleting user.";
-                    }
-                }
-            };
-            xhr.send();
+            fetch(`./delete_user?id=${id}`)
+                .then(response => response.ok ? response.text() : Promise.reject())
+                .then(() => {
+                    messageDiv.innerText = "User deleted successfully.";
+                    setTimeout(() => location.reload(), 1000);
+                })
+                .catch(() => { messageDiv.innerText = "Error deleting user."; });
+        }
+
+        function clearForm() {
+            userForm.reset();
+            document.getElementById("userId").value = "";
+            document.getElementById("file").setAttribute('name', 'file');
+            document.getElementById("formTitle").innerText = "Add User";
+            document.getElementById("submitButton").innerText = "Add User";
         }
     </script>
 </body>
