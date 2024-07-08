@@ -43,7 +43,7 @@ void initialize_database(sqlite::database& db) {
        ");";
 
     db << "INSERT INTO user (age, name, weight) VALUES (?, ?, ?);"
-       << 20 << "Μαλαπάππας" << 83.25;
+       << 20 << "Test" << 83.25;
 
     uint8_t age = 21;
     float weight = 68.5;
@@ -71,9 +71,9 @@ int32_t main() {
         float weight;
         std::string profile_picture_path;  
 
-            for (const std::pair<const std::string, crow::multipart::part>& part : file_message.part_map) {
-                const  std::string& part_name = part.first;
-                const  crow::multipart::part& part_value = part.second;
+        for (const std::pair<const std::string, crow::multipart::part>& part : file_message.part_map) {
+            const  std::string& part_name = part.first;
+            const  crow::multipart::part& part_value = part.second;
 
             if (part_name == "file") {
                 auto headers_it = part_value.headers.find("Content-Disposition");
@@ -88,36 +88,33 @@ int32_t main() {
 
                 std::string_view filename = params_it->second;
 
-                std::array valid_extensions{".jpg", ".jpeg", ".png", ".gif", ".bmp", ".tiff", ".webp", ".avif"};
-                bool valid_extension = false;
-                for (auto extension : valid_extensions) {
-                    if (filename.ends_with(extension)) {
-                        valid_extension = true;
-                        break;
-                    }
-                }
-                if (!valid_extension) {
-                    return crow::response(400, "FILE TYPE NOT ALLOWED");
-                }
-
                 std::string upload_dir = "./profile_pictures/";
                 fs::create_directories(upload_dir);
                 std::string unique_filename = upload_dir + std::string(filename);
 
                 if (fs::exists(unique_filename)) {
-                    return crow::response(400, "FILE EXISTS");
+                    return crow::response(400, "UPLOAD FAILED: File exists");
                 }
 
-                std::ofstream out_file(unique_filename, std::ios::out | std::ios::binary);
-                out_file.write(part_value.body.data(), part_value.body.length());
-                out_file.close();
+                // JPEG, PNG, GIF, BMP
+                if (part_value.body.starts_with("\xFF\xD8\xFF") || part_value.body.starts_with("\x89\x50\x4E\x47\x0D\x0A\x1A\x0A") || part_value.body.starts_with("\x47\x49\x46\x38") || part_value.body.starts_with("\x42\x4D")) {
+                    std::ofstream out_file(unique_filename, std::ios::out | std::ios::binary);
+                    out_file.write(part_value.body.data(), part_value.body.length());
+                    profile_picture_path = unique_filename;
+                } else {
+                    return crow::response(400, "UPLOAD FAILED: Not an image file");
+                }
 
-                profile_picture_path = unique_filename;
+
             } else if (part_name == "age") {
                 std::expected<uint8_t, crow::response> check_age = u8_validator(part_value.body);
                 if (check_age) {
                     age = *check_age;
                 } else {
+                    std::error_code error;
+                    if (!profile_picture_path.empty() && fs::exists(profile_picture_path)) {
+                        fs::remove(profile_picture_path, error);
+                    } 
                     return crow::response(400, "INVALID AGE");
                 }
             } else if (part_name == "name") {
@@ -126,6 +123,10 @@ int32_t main() {
                 try {
                     weight = std::stof(part_value.body);
                 } catch (const std::exception& e) {
+                    std::error_code error;
+                    if (!profile_picture_path.empty() && fs::exists(profile_picture_path)) {
+                        fs::remove(profile_picture_path, error);
+                    } 
                     return crow::response(400, "INVALID WEIGHT");
                 }
             }
@@ -162,37 +163,34 @@ int32_t main() {
                 }
 
                 std::string_view filename = params_it->second;
-
-                std::array valid_extensions{".jpg", ".jpeg", ".png", ".gif", ".bmp", ".tiff", ".webp", ".avif"};
-                bool valid_extension = false;
-                for (auto extension : valid_extensions) {
-                    if (filename.ends_with(extension)) {
-                        valid_extension = true;
-                        break;
-                    }
-                }
-                if (!valid_extension) {
-                    return crow::response(400, "FILE TYPE NOT ALLOWED");
-                }
-
                 std::string upload_dir = "./profile_pictures/";
-                fs::create_directories(upload_dir);
+                if (!fs::exists(upload_dir)) {
+                    fs::create_directories(upload_dir);
+                }
                 std::string unique_filename = upload_dir + std::string(filename);
 
                 if (fs::exists(unique_filename)) {
-                    return crow::response(400, "FILE EXISTS");
+                    return crow::response(400, "UPLOAD FAILED: FILE EXISTS");
                 }
 
-                std::ofstream out_file(unique_filename, std::ios::out | std::ios::binary);
-                out_file.write(part_value.body.data(), part_value.body.length());
-                out_file.close();
+                // JPEG, PNG, GIF, BMP
+                if (part_value.body.starts_with("\xFF\xD8\xFF") || part_value.body.starts_with("\x89\x50\x4E\x47\x0D\x0A\x1A\x0A") || part_value.body.starts_with("\x47\x49\x46\x38") || part_value.body.starts_with("\x42\x4D")) {
+                    std::ofstream out_file(unique_filename, std::ios::out | std::ios::binary);
+                    out_file.write(part_value.body.data(), part_value.body.length());
+                    profile_picture_path = unique_filename;
+                } else {
+                    return crow::response(400, "UPLOAD FAILED: Not an image file");
+                }
 
-                profile_picture_path = unique_filename;
             } else if (part_name == "age") {
                 std::expected<uint8_t, crow::response> check_age = u8_validator(part_value.body);
                 if (check_age) {
                     age = *check_age;
                 } else {
+                    std::error_code error;
+                    if (!profile_picture_path.empty() && fs::exists(profile_picture_path)) {
+                        fs::remove(profile_picture_path, error);
+                    } 
                     return crow::response(400, "INVALID AGE");
                 }
             } else if (part_name == "name") {
@@ -201,6 +199,10 @@ int32_t main() {
                 try {
                     weight = std::stof(part_value.body);
                 } catch (const std::exception& e) {
+                    std::error_code error;
+                    if (!profile_picture_path.empty() && fs::exists(profile_picture_path)) {
+                        fs::remove(profile_picture_path, error);
+                    } 
                     return crow::response(400, "INVALID WEIGHT");
                 }
             }
