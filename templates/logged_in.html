@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css">
+    <title>User</title>
+</head>
+<body>
+    <div class="container">
+        <div class="d-flex justify-content-between align-items-center mt-4">
+            <h1>User</h1>
+            {{#users}}
+            <button class="btn btn-primary" onclick="logout('{{id}}')">Logout</button>
+        </div>
+
+        <table class="table mt-4">
+            <thead>
+                <tr>
+                    <th scope="col">Name</th>
+                    <th scope="col">Email</th>
+                    <th scope="col">Password</th>
+                    <th scope="col">Profile Picture</th>
+                    <th scope="col">Actions</th>
+                </tr>
+            </thead>
+            <tbody id="userList">
+
+                <tr id="user-{{id}}">
+                    <td>{{name}}</td>
+                    <td>{{email}}</td>
+                    <td>{{password}}</td>
+                    <td>
+                        {{#profile_picture}}
+                        <img src="{{profile_picture}}" alt="Profile Picture" style="max-width: 100px; border-radius: 50%; height: 80px; width: 31%">
+                        {{/profile_picture}}
+                    </td>
+                    <td>
+                        <button class="btn btn-secondary btn-sm" onclick="editUser('{{id}}')">Edit</button>
+                        <button class="btn btn-danger btn-sm" onclick="deleteUser('{{id}}')">Delete</button>
+                    </td>
+                </tr>
+                {{/users}}
+            </tbody>
+        </table>
+        <div id="message" class="mt-4"></div>
+    </div>
+
+    <script>
+        const messageDiv = document.getElementById("message");
+
+        function editUser(id) {
+            const row = document.getElementById(`user-${id}`);
+            const cells = row.getElementsByTagName('td');
+
+            const name = cells[0].innerText;
+            const email = cells[1].innerText;
+            const password = cells[2].innerText;
+            const profilePictureHTML = cells[3].innerHTML;
+            row.dataset.originalHtml = row.innerHTML;
+
+            cells[0].innerHTML = `<input type="text" class="form-control" id="edit-name-${id}" value="${name}">`;
+            cells[1].innerHTML = `<input type="email" class="form-control" id="edit-email-${id}" value="${email}">`;
+            cells[2].innerHTML = `<input type="password" class="form-control" id="edit-password-${id}" value="${password}">`;
+            cells[3].innerHTML = `
+                ${profilePictureHTML}
+                <input type="file" class="form-control mt-2" id="edit-profile-picture-${id}">
+                <button class="btn btn-danger btn-sm mt-2" onclick="removeProfilePicture('${id}')">Remove</button>
+            `;
+
+            cells[4].innerHTML = `
+                <button class="btn btn-success btn-sm" onclick="saveUser('${id}')">Save</button>
+                <button class="btn btn-secondary btn-sm" onclick="cancelEdit('${id}')">Cancel</button>
+            `;
+        }
+
+        function saveUser(id) {
+            const name = document.getElementById(`edit-name-${id}`).value;
+            const email = document.getElementById(`edit-email-${id}`).value;
+            const password = document.getElementById(`edit-password-${id}`).value;
+            const profilePictureInput = document.getElementById(`edit-profile-picture-${id}`);
+            const removePicture = document.getElementById(`remove-picture-${id}`);
+
+            const formData = new FormData();
+            formData.append('id', id);
+            formData.append('name', name);
+            formData.append('email', email);
+            formData.append('password', password);
+            if (profilePictureInput && profilePictureInput.files.length > 0) {
+                formData.append('file', profilePictureInput.files[0]);
+            }
+            if (removePicture && removePicture.checked) {
+                formData.append('remove_picture', 'true');
+            }
+
+            // Send the updated data to the server
+            fetch(`/edit_user?id=${id}`, {
+                method: 'POST',
+                body: formData
+            })
+            .then(response => response.text().then(text => ({ ok: response.ok, text })))
+            .then(({ ok, text }) => {
+                if (ok) {
+                    messageDiv.innerText = 'User updated successfully.';
+                    setTimeout(() => location.reload(), 1000);
+                } else {
+                    messageDiv.innerText = `${text}`;
+                }
+            })
+            .catch(error => {
+                messageDiv.innerText = `${error.message}`;
+            });
+        }
+
+        function cancelEdit(id) {
+            const row = document.getElementById(`user-${id}`);
+            // Restore the original HTML of the row
+            row.innerHTML = row.dataset.originalHtml;
+        }
+
+        function deleteUser(id) {
+            fetch(`/delete_user?id=${id}`)
+                .then(response => response.text().then(text => ({ ok: response.ok, text })))
+                .then(({ ok, text }) => {
+                    if (ok) {
+                        messageDiv.innerText = 'User deleted successfully.';
+                        setTimeout(() => location.reload(), 1000);
+                    } else {
+                        messageDiv.innerText = `${text}`;
+                    }
+                })
+                .catch(error => {
+                    messageDiv.innerText = `${error.message}`;
+                });
+        }
+
+        function removeProfilePicture(id) {
+            document.getElementById(`edit-profile-picture-${id}`).value = '';
+            const row = document.getElementById(`user-${id}`);
+            const cells = row.getElementsByTagName('td');
+            cells[3].innerHTML = `<input type="checkbox" id="remove-picture-${id}" checked> Remove current profile picture`;
+        }
+
+        function logout(id) {
+            fetch(`/logout?id=${id}`, {
+                method: 'GET'
+            })
+            .then(response => {
+                if (response.ok) {
+                    window.location.href = '/';
+                } else {
+                    return response.text().then(text => { throw new Error(text) });
+                }
+            })
+            .catch(error => {
+                messageDiv.innerText = `Logout failed: ${error.message}`;
+            });
+        }
+    </script>
+</body>
+</html>

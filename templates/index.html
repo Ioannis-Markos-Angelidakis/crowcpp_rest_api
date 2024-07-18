@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css">
+    <title>Login/Register</title>
+</head>
+<body>
+    <div class="container">
+        <h2 class="mt-4" id="formTitle">Login</h2>
+        <form id="userForm" enctype="multipart/form-data">
+            <input type="hidden" id="userId" name="id">
+            <div class="form-group" id="nameGroup" style="display: none;">
+                <label for="name">Name:</label>
+                <input type="text" class="form-control" id="name" name="name">
+            </div>
+            <div class="form-group">
+                <label for="email">Email:</label>
+                <input type="text" class="form-control" id="email" name="email">
+            </div>
+            <div class="form-group">
+                <label for="password">Password:</label>
+                <input type="password" class="form-control" id="password" name="password">
+            </div>
+            <div class="form-group" id="fileGroup" style="display: none;">
+                <label for="file">Profile Picture (Optional):</label>
+                <input type="file" class="form-control-file" id="file" name="file">
+            </div>
+            <button type="submit" class="btn btn-primary" id="submitButton">Login</button>
+        </form>
+        <button class="btn btn-secondary mt-2" id="toggleButton">Switch to Register</button>
+        <div id="message" class="mt-4"></div>
+    </div>
+
+    <script>
+        const userForm = document.getElementById("userForm");
+        const messageDiv = document.getElementById("message");
+        const formTitle = document.getElementById("formTitle");
+        const submitButton = document.getElementById("submitButton");
+        const toggleButton = document.getElementById("toggleButton");
+        const nameGroup = document.getElementById("nameGroup");
+        const fileGroup = document.getElementById("fileGroup");
+
+        let isLogin = true;
+
+        toggleButton.addEventListener("click", function() {
+            isLogin = !isLogin;
+            if (isLogin) {
+                formTitle.textContent = "Login";
+                submitButton.textContent = "Login";
+                toggleButton.textContent = "Switch to Register";
+                nameGroup.style.display = "none";
+                fileGroup.style.display = "none";
+                document.getElementById('file').removeAttribute('name');
+            } else {
+                formTitle.textContent = "Register";
+                submitButton.textContent = "Register";
+                toggleButton.textContent = "Switch to Login";
+                nameGroup.style.display = "block";
+                fileGroup.style.display = "block";
+            }
+            clearForm();
+        });
+
+        userForm.addEventListener("submit", function(event) {
+            event.preventDefault();
+            if (!isLogin && document.getElementById('file').files.length <= 0) {
+                document.getElementById('file').removeAttribute('name');
+            }
+            const formData = new FormData(userForm);
+            const userId = document.getElementById("userId").value;
+            const url = isLogin ? "./login" : (userId ? `./edit_user?id=${userId}` : "./register");
+
+            fetch(url, {
+                method: "POST",
+                body: formData
+            })
+            .then(response => {
+                if (response.redirected) {
+                    window.location.href = response.url;
+                } else if (!response.ok) {
+                    return response.text().then(errorText => {
+                        throw new Error(errorText || 'An error occurred');
+                    });
+                } else {
+                    return response.text();
+                }
+            })
+            .then(data => {
+                messageDiv.innerText = userId ? "User updated successfully." : "User added successfully.";
+                clearForm();
+            })
+            .catch((error) => {
+                messageDiv.innerText = `Error: ${error.message}`;
+                console.error('There was a problem with the fetch operation:', error);
+            });
+        });
+
+        function clearForm() {
+            userForm.reset();
+            document.getElementById("userId").value = '';
+        }
+    </script>
+</body>
+</html>
