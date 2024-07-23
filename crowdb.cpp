@@ -22,7 +22,70 @@ struct current_user {
     std::string error_message;
 };
 
-std::string encrypt_decrypt(const std::string& message, const std::string& key) { //Simple XOR encrypt
+bool is_pass_ok(const std::string& str) {
+    const std::string uppercase_utf8 = 
+        "ÀÁÂÃÄÅÆÇÈÉÊËÌÍÎÏÐÑÒÓÔÕÖØÙÚÛÜÝÞĀĂĄĆĈĊČĎĐĒĔĖĘĚĜĞĠĢĤ"
+        "ĦĨĪĬĮİĲĴĶĹĻĽĿŁŃŅŇŊŌŎŐŒŔŖŘŚŜŞŠŢŤŦŨŪŬŮŰŲŴŶŸŹŻŽ"
+        "ƁƂƄƆƇƊƋƎƏƐƑƓƔƖƗƘƜƝƠƢƤƧƩƬƮƯƱƲƳƵƷƸƼǄǅǇǈǊǋǍǏǑǓǕ"
+        "ǗǙǛǞǠǢǤǦǨǪǬǮǱǲǴǶǷǸǺǼǾȀȂȄȆȈȊȌȎȐȒȔȖȘȚȜȞȠȢȤȦȨȪȬȮȰ"
+        "ȲȺȻȽȾɁɃɄɅɆɈɊɌɎͰͲͶͿΆΈΉΊΌΎΏΑΒΓΔΕΖΗΘΙΚΛΜΝΞΟΠΡΣΤΥΦΧΨΩΪΫ"
+        "ϏϘϚϜϞϠϢϤϦϨϪϬϮϴϷϹϺϽϾϿЀЁЂЃЄЅІЇЈЉЊЋЌЍЎЏАБВГДЕЖЗИЙКЛМНОП"
+        "РСТУФХЦЧШЩЪЫЬЭЮЯѠѢѤѦѨѪѬѮѰѲѴѶѸѺѼѾҀҊҌҎҐҒҔҖҘҚҜҞҠҢҤҦҨҪҬҮҰҲҴҶҸ"
+        "ҺҼҾӀӁӃӅӇӉӋӍӐӒӔӖӘӚӜӞӠӢӤӦӨӪӬӮӰӲӴӶӸӺӼӾԀԂԄԆԈԊԌԎԐԒԔԖԘԚԜԞԠԢ"
+        "ԤԦԨԪԬԮԱԲԳԴԵԶԷԸԹԺԻԼԽԾԿՀՁՂՃՄՅՆՇՈՉՊՋՌՍՎՏՐՑՒՓՔՕՖႠႡႢႣႤႥႦႧႨႩႪႫႬႭႮႯႰႱႲႳႴႵႶႷႸႹႺႻႼႽႾႿჀჁჂჃჄჅ"
+        "ჇჍᎠᎡᎢᎣᎤᎥᎦᎧᎨᎩᎪᎫᎬᎭᎮᎯᎰᎱᎲᎳᎴᎵᎶᎷᎸᎹᎺᎻᎼᎽᎾᎿᏀᏁᏂᏃᏄᏅᏆᏇᏈᏉᏊ"
+        "ᏋᏌᏍᏎᏏᏐᏑᏒᏓᏔᏕᏖᏗᏘᏙᏚᏛᏜᏝᏞᏟᏠᏡᏢᏣᏤᏥᏦᏧᏨᏩᏪᏫᏬᏭᏮᏯᏰᏱᏲᏳᏴᏵᲐᲑᲒᲓᲔᲕᲖᲗᲘᲙᲚᲛᲜᲝᲞᲟᲠᲡᲢᲣᲤ"
+        "ᲥᲦᲧᲨᲩᲪᲫᲬᲭᲮᲯᲰᲱᲲᲳᲴᲵᲶᲷᲸᲹᲺᲽᲾᲿḀḂḄḆḈḊḌḎḐḒḔḖḘḚḜḞḠḢḤḦḨḪḬḮḰḲḴḶḸḺḼḾṀṂṄṆṈṊṌṎ"
+        "ṐṒṔṖṘṚṜṞṠṢṤṦṨṪṬṮṰṲṴṶṸṺṼṾẀẂẄẆẈẊẌẎẐẒẔẞẠẢẤẦẨẪẬẮẰẲẴẶẸẺẼẾỀỂỄ"
+        "ỆỈỊỌỎỐỒỔỖỘỚỜỞỠỢỤỦỨỪỬỮỰỲỴỶỸỺỼỾἈἉἊἋἌἍἎἏἘἙἚἛἜἝἨἩἪἫἬἭἮἯἸἹἺἻἼἽἾἿὈὉὊὋὌὍὙὛὝὟὨὩὪὫὬὭὮὯᾈᾉᾊᾋᾌᾍᾎ"
+        "ᾏᾘᾙᾚᾛᾜᾝᾞᾟᾨᾩᾪᾫᾬᾭᾮᾯᾸᾹᾺΆᾼῈΈῊΉῌῘῙῚΊῨῩῪΎῬῸΌῺΏῼⰀⰁⰂⰃⰄⰅⰆⰇⰈⰉⰊⰋ"
+        "ⰌⰍⰎⰏⰐⰑⰒⰓⰔⰕⰖⰗⰘⰙⰚⰛⰜⰝⰞⰟⰠⰡⰢⰣⰤⰥⰦⰧⰨⰩⰪⰫⰬⰭⰮⱠⱢⱣⱤⱧⱩⱫⱭⱮⱯⱰⱲⱵⱾⱿⲀⲂⲄⲆⲈⲊⲌⲎ"
+        "ⲐⲒⲔⲖⲘⲚⲜⲞⲠⲢⲤⲦⲨⲪⲬⲮⲰⲲⲴⲶⲸⲺⲼⲾⳀⳂⳄⳆⳈⳊⳌⳎⳐⳒⳔⳖⳘⳚⳜⳢⳤ⳨⳪ⴀⴁⴂⴃⴄⴅⴆⴇ"
+        "ⴈⴉⴊⴋⴌⴍⴎⴏⴐⴑⴒⴓⴔⴕⴖⴗⴘⴙⴚⴛⴜⴝⴞⴟⴠⴡⴢⴣⴤⴥ⴦ⴧ⴨⴩⴪⴫⴬ⴭ⴮⴯ⴰⵁⵂⵃⵄⵅⵆⵇⵈⵉⵊ"
+        "ⵋⵌⵍⵎⵏⵐⵑⵒⵓⵔⵕⵖⵗⵘⵙⵚⵛⵜⵝⵞⵟⵠⵡⵢⵣⵤⵥⵯ⵰⵱⵲⵳⵴⵵⵶⵷⵸⵹⵺⵻⵼⵽⵾⵿ⶀⶁⶂⶃ"
+        "ⶄⶅⶆⶇⶈⶉⶊⶋⶌⶍⶎⶏⶐⶑⶒⶓⶔⶕⶖ⶗⶘⶙⶚⶛⶜⶝⶞⶟ⶠⶡⶢⶣⶤⶥⶦ⶧ⶨⶩⶪⶫⶬⶭⶮ⶯ⶰⶱ"
+        "ⶲⶳⶴⶵⶶ⶷ⶸⶹⶺⶻⶼⶽⶾ⶿";
+    bool has_upper = false;
+    
+    for (size_t i = 0; i < str.length(); ++i) { 
+        if (str.at(i) >= 'A' && str.at(i) <= 'Z') {
+            has_upper = true;
+            break;
+        }
+        
+        if (!(str.at(i) >= ' ' && str.at(i) <= '~')) { //All that for UTF-8 chars > 1 bytes
+            std::string c{str.data() + i++, 2};
+            if (uppercase_utf8.contains(c)) {
+                has_upper = true;
+                break;
+            }
+        }
+    }
+    
+    const std::string numbers = "0123456789";
+    bool has_num = false;
+    
+    for (const char c : str) {
+        if (numbers.contains(c)) {
+            has_num = true;
+            break;
+        }
+    }
+    
+    const std::string symbols = "!@#$%^&*()-; _=+[]{}|:,.<>?/";
+    bool has_symbols = false;
+    
+    for (const char c : str) {
+        if (symbols.contains(c)) {
+            has_symbols = true;
+            break;
+        }
+    }
+    
+    return has_upper && has_num && has_symbols;
+}
+
+std::string encrypt_decrypt(const std::string& message, const std::string& key) {
     size_t key_length = key.length();
     std::string output = message;
 
@@ -169,8 +232,12 @@ int32_t main() {
             } else if (part_name == "password" && part_value.body.empty()) {
                 return crow::response(400, "Password is EMPTY");
             } else if (part_name == "password") {
-                std::string key = session_token();
-                password = key + encrypt_decrypt(part_value.body, key);
+                    if (is_pass_ok(part_value.body) && part_value.body.length() >= 8) {
+                        std::string key = session_token();
+                        password = key + encrypt_decrypt(part_value.body, key);
+                    } else {
+                        return crow::response(400, "ERROR: Password needs to be at least 8 chars with a symbol, number, capital letter");
+                    }
             }
         }
 
@@ -314,8 +381,12 @@ int32_t main() {
                 } else if (part_name == "email") {
                     email = part_value.body;
                 } else if (part_name == "password") {
-                    std::string key = session_token();
-                    password = key + encrypt_decrypt(part_value.body, key);
+                    if (is_pass_ok(part_value.body) && part_value.body.length() >= 8) {
+                        std::string key = session_token();
+                        password = key + encrypt_decrypt(part_value.body, key);
+                    } else {
+                        return crow::response(400, "ERROR: Password needs to be at least 8 chars with a symbol, number, capital letter");
+                    }
                 } else if (part_name == "remove_picture") {
                     remove_profile_pic = part_value.body;
                 }
@@ -438,5 +509,5 @@ int32_t main() {
         return page.render(json_data);
     });
 
-    app.bindaddr("YOUR IP").port(18080).run();
+    app.bindaddr("ENTER HOSTING IPV4").port(18080).run();
 }
