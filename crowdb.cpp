@@ -22,75 +22,118 @@ struct current_user {
     std::string error_message;
 };
 
+bool is_symbol(const uint32_t codepoint) {
+    return
+        (codepoint >= 0x0021 && codepoint <= 0x002F) || // ! " # $ % & ' ( ) * + , - . /
+        (codepoint >= 0x003A && codepoint <= 0x0040) || // : ; < = > ? @
+        (codepoint >= 0x005B && codepoint <= 0x0060) || // [ \ ] ^ _ `
+        (codepoint >= 0x007B && codepoint <= 0x007E) || // { | } ~
+        (codepoint == 0x20AC) || // €
+        (codepoint >= 0x2000 && codepoint <= 0x206F) || // General Punctuation
+        (codepoint >= 0x2100 && codepoint <= 0x214F) || // Letterlike Symbols
+        (codepoint >= 0x2200 && codepoint <= 0x22FF) || // Mathematical Operators
+        (codepoint >= 0x2300 && codepoint <= 0x23FF) || // Miscellaneous Technical
+        (codepoint >= 0x2400 && codepoint <= 0x243F) || // Control Pictures
+        (codepoint >= 0x2440 && codepoint <= 0x245F) || // Optical Character Recognition
+        (codepoint >= 0x2500 && codepoint <= 0x257F) || // Box Drawing
+        (codepoint >= 0x2580 && codepoint <= 0x259F) || // Block Elements
+        (codepoint >= 0x25A0 && codepoint <= 0x25FF) || // Geometric Shapes
+        (codepoint >= 0x2600 && codepoint <= 0x26FF) || // Miscellaneous Symbols
+        (codepoint >= 0x2700 && codepoint <= 0x27BF) || // Dingbats
+        (codepoint >= 0x2B50 && codepoint <= 0x2B59) || // Miscellaneous Symbols and Pictographs
+        (codepoint >= 0x1F300 && codepoint <= 0x1F5FF) || // Miscellaneous Symbols and Pictographs
+        (codepoint >= 0x1F600 && codepoint <= 0x1F64F) || // Emoticons
+        (codepoint >= 0x1F680 && codepoint <= 0x1F6FF) || // Transport and Map Symbols
+        (codepoint >= 0x1F700 && codepoint <= 0x1F77F);   // Alchemical Symbols
+}
+
+bool is_uppercase(const uint32_t codepoint) {
+    return
+        (codepoint >= 0x0041 && codepoint <= 0x005A) || // Basic Latin A-Z
+        (codepoint >= 0x00C0 && codepoint <= 0x00D6) || // Latin-1 Supplement À-Ö
+        (codepoint >= 0x00D8 && codepoint <= 0x00DE) || // Latin-1 Supplement Ø-Þ
+        (codepoint >= 0x0100 && codepoint <= 0x017F) || // Latin Extended-A
+        (codepoint >= 0x0180 && codepoint <= 0x024F) || // Latin Extended-B
+        (codepoint >= 0x0410 && codepoint <= 0x042F) || // Cyrillic А-Я
+        (codepoint >= 0x0391 && codepoint <= 0x03A9) || // Greek and Coptic Α-Ω
+        (codepoint >= 0x0531 && codepoint <= 0x0556) || // Armenian
+        (codepoint >= 0x05D0 && codepoint <= 0x05EA) || // Hebrew
+        (codepoint >= 0x0600 && codepoint <= 0x06C0) || // Arabic (some uppercase)
+        (codepoint >= 0x0780 && codepoint <= 0x07A5) || // Thaana
+        (codepoint >= 0x0905 && codepoint <= 0x0939) || // Devanagari
+        (codepoint >= 0x0985 && codepoint <= 0x0995) || // Bengali
+        (codepoint >= 0x0A05 && codepoint <= 0x0A0A) || // Gurmukhi
+        (codepoint >= 0x0A85 && codepoint <= 0x0A8D) || // Gujarati
+        (codepoint >= 0x0B05 && codepoint <= 0x0B0C) || // Oriya
+        (codepoint >= 0x0B85 && codepoint <= 0x0B9A) || // Tamil
+        (codepoint >= 0x0C05 && codepoint <= 0x0C0C) || // Telugu
+        (codepoint >= 0x0C85 && codepoint <= 0x0C8C) || // Kannada
+        (codepoint >= 0x0D05 && codepoint <= 0x0D0C) || // Malayalam
+        (codepoint >= 0x1000 && codepoint <= 0x102A) || // Myanmar
+        (codepoint >= 0x10A0 && codepoint <= 0x10C5) || // Georgian
+        (codepoint >= 0x1100 && codepoint <= 0x1159) || // Hangul Jamo
+        (codepoint >= 0xAC00 && codepoint <= 0xD7A3);   // Hangul Syllables
+}
+
 bool is_pass_ok(const std::string& str) {
-    const std::string uppercase_utf8 = 
-        "ÀÁÂÃÄÅÆÇÈÉÊËÌÍÎÏÐÑÒÓÔÕÖØÙÚÛÜÝÞĀĂĄĆĈĊČĎĐĒĔĖĘĚĜĞĠĢĤ"
-        "ĦĨĪĬĮİĲĴĶĹĻĽĿŁŃŅŇŊŌŎŐŒŔŖŘŚŜŞŠŢŤŦŨŪŬŮŰŲŴŶŸŹŻŽ"
-        "ƁƂƄƆƇƊƋƎƏƐƑƓƔƖƗƘƜƝƠƢƤƧƩƬƮƯƱƲƳƵƷƸƼǄǅǇǈǊǋǍǏǑǓǕ"
-        "ǗǙǛǞǠǢǤǦǨǪǬǮǱǲǴǶǷǸǺǼǾȀȂȄȆȈȊȌȎȐȒȔȖȘȚȜȞȠȢȤȦȨȪȬȮȰ"
-        "ȲȺȻȽȾɁɃɄɅɆɈɊɌɎͰͲͶͿΆΈΉΊΌΎΏΑΒΓΔΕΖΗΘΙΚΛΜΝΞΟΠΡΣΤΥΦΧΨΩΪΫ"
-        "ϏϘϚϜϞϠϢϤϦϨϪϬϮϴϷϹϺϽϾϿЀЁЂЃЄЅІЇЈЉЊЋЌЍЎЏАБВГДЕЖЗИЙКЛМНОП"
-        "РСТУФХЦЧШЩЪЫЬЭЮЯѠѢѤѦѨѪѬѮѰѲѴѶѸѺѼѾҀҊҌҎҐҒҔҖҘҚҜҞҠҢҤҦҨҪҬҮҰҲҴҶҸ"
-        "ҺҼҾӀӁӃӅӇӉӋӍӐӒӔӖӘӚӜӞӠӢӤӦӨӪӬӮӰӲӴӶӸӺӼӾԀԂԄԆԈԊԌԎԐԒԔԖԘԚԜԞԠԢ"
-        "ԤԦԨԪԬԮԱԲԳԴԵԶԷԸԹԺԻԼԽԾԿՀՁՂՃՄՅՆՇՈՉՊՋՌՍՎՏՐՑՒՓՔՕՖႠႡႢႣႤႥႦႧႨႩႪႫႬႭႮႯႰႱႲႳႴႵႶႷႸႹႺႻႼႽႾႿჀჁჂჃჄჅ"
-        "ჇჍᎠᎡᎢᎣᎤᎥᎦᎧᎨᎩᎪᎫᎬᎭᎮᎯᎰᎱᎲᎳᎴᎵᎶᎷᎸᎹᎺᎻᎼᎽᎾᎿᏀᏁᏂᏃᏄᏅᏆᏇᏈᏉᏊ"
-        "ᏋᏌᏍᏎᏏᏐᏑᏒᏓᏔᏕᏖᏗᏘᏙᏚᏛᏜᏝᏞᏟᏠᏡᏢᏣᏤᏥᏦᏧᏨᏩᏪᏫᏬᏭᏮᏯᏰᏱᏲᏳᏴᏵᲐᲑᲒᲓᲔᲕᲖᲗᲘᲙᲚᲛᲜᲝᲞᲟᲠᲡᲢᲣᲤ"
-        "ᲥᲦᲧᲨᲩᲪᲫᲬᲭᲮᲯᲰᲱᲲᲳᲴᲵᲶᲷᲸᲹᲺᲽᲾᲿḀḂḄḆḈḊḌḎḐḒḔḖḘḚḜḞḠḢḤḦḨḪḬḮḰḲḴḶḸḺḼḾṀṂṄṆṈṊṌṎ"
-        "ṐṒṔṖṘṚṜṞṠṢṤṦṨṪṬṮṰṲṴṶṸṺṼṾẀẂẄẆẈẊẌẎẐẒẔẞẠẢẤẦẨẪẬẮẰẲẴẶẸẺẼẾỀỂỄ"
-        "ỆỈỊỌỎỐỒỔỖỘỚỜỞỠỢỤỦỨỪỬỮỰỲỴỶỸỺỼỾἈἉἊἋἌἍἎἏἘἙἚἛἜἝἨἩἪἫἬἭἮἯἸἹἺἻἼἽἾἿὈὉὊὋὌὍὙὛὝὟὨὩὪὫὬὭὮὯᾈᾉᾊᾋᾌᾍᾎ"
-        "ᾏᾘᾙᾚᾛᾜᾝᾞᾟᾨᾩᾪᾫᾬᾭᾮᾯᾸᾹᾺΆᾼῈΈῊΉῌῘῙῚΊῨῩῪΎῬῸΌῺΏῼⰀⰁⰂⰃⰄⰅⰆⰇⰈⰉⰊⰋ"
-        "ⰌⰍⰎⰏⰐⰑⰒⰓⰔⰕⰖⰗⰘⰙⰚⰛⰜⰝⰞⰟⰠⰡⰢⰣⰤⰥⰦⰧⰨⰩⰪⰫⰬⰭⰮⱠⱢⱣⱤⱧⱩⱫⱭⱮⱯⱰⱲⱵⱾⱿⲀⲂⲄⲆⲈⲊⲌⲎ"
-        "ⲐⲒⲔⲖⲘⲚⲜⲞⲠⲢⲤⲦⲨⲪⲬⲮⲰⲲⲴⲶⲸⲺⲼⲾⳀⳂⳄⳆⳈⳊⳌⳎⳐⳒⳔⳖⳘⳚⳜⳢⳤ⳨⳪ⴀⴁⴂⴃⴄⴅⴆⴇ"
-        "ⴈⴉⴊⴋⴌⴍⴎⴏⴐⴑⴒⴓⴔⴕⴖⴗⴘⴙⴚⴛⴜⴝⴞⴟⴠⴡⴢⴣⴤⴥ⴦ⴧ⴨⴩⴪⴫⴬ⴭ⴮⴯ⴰⵁⵂⵃⵄⵅⵆⵇⵈⵉⵊ"
-        "ⵋⵌⵍⵎⵏⵐⵑⵒⵓⵔⵕⵖⵗⵘⵙⵚⵛⵜⵝⵞⵟⵠⵡⵢⵣⵤⵥⵯ⵰⵱⵲⵳⵴⵵⵶⵷⵸⵹⵺⵻⵼⵽⵾⵿ⶀⶁⶂⶃ"
-        "ⶄⶅⶆⶇⶈⶉⶊⶋⶌⶍⶎⶏⶐⶑⶒⶓⶔⶕⶖ⶗⶘⶙⶚⶛⶜⶝⶞⶟ⶠⶡⶢⶣⶤⶥⶦ⶧ⶨⶩⶪⶫⶬⶭⶮ⶯ⶰⶱ"
-        "ⶲⶳⶴⶵⶶ⶷ⶸⶹⶺⶻⶼⶽⶾ⶿";
     bool has_upper = false;
-    
-    for (size_t i = 0; i < str.length(); ++i) { 
-        if (str.at(i) >= 'A' && str.at(i) <= 'Z') {
-            has_upper = true;
-            break;
-        }
-        
-        if (!(str.at(i) >= ' ' && str.at(i) <= '~')) { //All that for UTF-8 chars > 1 bytes
-            std::string c{str.data() + i++, 2};
-            if (uppercase_utf8.contains(c)) {
-                has_upper = true;
-                break;
-            }
-        }
-    }
-    
-    const std::string numbers = "0123456789";
+    bool has_symbols = false;
     bool has_num = false;
     
-    for (const char c : str) {
-        if (numbers.contains(c)) {
-            has_num = true;
-            break;
+    for (size_t i = 0; i < str.length(); ) {
+        uint32_t codepoint = 0;
+        
+        if ((str.at(i) & 0x80) == 0x00) { // 1-byte UTF-8
+            codepoint = str.at(i);
+            ++i;
+        } else if ((str.at(i) & 0xE0) == 0xC0) { // 2-byte UTF-8
+            codepoint = ((str.at(i) & 0x1F) << 6) | (str.at(i + 1) & 0x3F);
+            i += 2;
+        } else if ((str.at(i) & 0xF0) == 0xE0) { // 3-byte UTF-8
+            codepoint = ((str.at(i) & 0x0F) << 12) | ((str.at(i + 1) & 0x3F) << 6) | (str.at(i + 2) & 0x3F);
+            i += 3;
+        } else if ((str.at(i) & 0xF8) == 0xF0) { // 4-byte UTF-8
+            codepoint = ((str.at(i) & 0x07) << 18) | ((str.at(i + 1) & 0x3F) << 12) | ((str.at(i + 2) & 0x3F) << 6) | (str.at(i + 3) & 0x3F);
+            i += 4;
+        } else {
+            return false;
         }
-    }
-    
-    const std::string symbols = "!@#$%^&*()-; _=+[]{}|:,.<>?/";
-    bool has_symbols = false;
-    
-    for (const char c : str) {
-        if (symbols.contains(c)) {
+        
+        if (is_uppercase(codepoint)) {
+            has_upper = true;
+        } else if (is_symbol(codepoint)) {
             has_symbols = true;
-            break;
+        } else if (codepoint >= 0x0030 && codepoint <= 0x0039) {
+            has_num = true;
         }
+        
+        if (has_upper && has_num && has_symbols) {
+            return true;
+        }        
     }
     
     return has_upper && has_num && has_symbols;
 }
 
-std::string encrypt_decrypt(const std::string& message, const std::string& key) {
+std::string encrypt(const std::string& message, const std::string& key) {
     size_t key_length = key.length();
-    std::string output = message;
+    std::string output;
 
     for (size_t i = 0; i < message.length(); ++i) {
-        output.at(i) = message.at(i) ^ key.at(i % key_length);
+        output += message.at(i) ^ key.at(i % key_length);
+    }
+
+    return key + output;
+}
+
+std::string decrypt(const std::string& password) {
+    std::string key = password.substr(0, 20);
+    std::string message = password.substr(20);
+    size_t key_length = key.length();
+    std::string output;
+
+    for (size_t i = 0; i < message.length(); ++i) {
+        output += message.at(i) ^ key.at(i % key_length);
     }
 
     return output;
@@ -234,7 +277,7 @@ int32_t main() {
             } else if (part_name == "password") {
                     if (is_pass_ok(part_value.body) && part_value.body.length() >= 8) {
                         std::string key = session_token();
-                        password = key + encrypt_decrypt(part_value.body, key);
+                        password = encrypt(part_value.body, key);
                     } else {
                         return crow::response(400, "ERROR: Password needs to be at least 8 chars with a symbol, number, capital letter");
                     }
@@ -323,7 +366,7 @@ int32_t main() {
            << user_id
            >> [&db_password](const std::string& pass){ db_password = pass ;};
         
-        if (encrypt_decrypt(db_password.substr(20), db_password.substr(0, 20)) != password) {
+        if (decrypt(db_password) != password) {
             return crow::response(400, "Wrong password");
         }
 
@@ -351,7 +394,7 @@ int32_t main() {
                 user["id"] = id;
                 user["name"] = name; 
                 user["email"] = email;
-                user["password"] = encrypt_decrypt(password.substr(20), password.substr(0, 20));
+                user["password"] = decrypt(password);
                 user["profile_picture"] = profile_picture; 
                 users.emplace_back(user);
             };
@@ -383,7 +426,7 @@ int32_t main() {
                 } else if (part_name == "password") {
                     if (is_pass_ok(part_value.body) && part_value.body.length() >= 8) {
                         std::string key = session_token();
-                        password = key + encrypt_decrypt(part_value.body, key);
+                        password = encrypt(part_value.body, key);
                     } else {
                         return crow::response(400, "ERROR: Password needs to be at least 8 chars with a symbol, number, capital letter");
                     }
