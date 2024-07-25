@@ -5,6 +5,7 @@
 #include <random>
 #include <expected>
 #include <string>
+#include <bitset>
 
 namespace fs = std::filesystem;
 
@@ -115,12 +116,62 @@ bool is_pass_ok(const std::string& str) {
     return has_upper && has_num && has_symbols;
 }
 
+std::bitset<32> get_codepoint(const std::string& str, size_t& i) {
+    char32_t codepoint = 0;
+    unsigned char c = str.at(i);
+    if (c <= 0x7F) { // 1-byte UTF-8
+        codepoint = c;
+        ++i;
+    } else if (c <= 0xDF) { // 2-byte UTF-8
+        codepoint = ((c & 0x1F) << 6) | (str.at(i + 1) & 0x3F);
+        i += 2;
+    } else if (c <= 0xEF) { // 3-byte UTF-8
+        codepoint = ((c & 0x0F) << 12) | ((str.at(i + 1) & 0x3F) << 6) | (str.at(i + 2) & 0x3F);
+        i += 3;
+    } else { // 4-byte UTF-8
+        codepoint = ((c & 0x07) << 18) | ((str.at(i + 1) & 0x3F) << 12) | ((str.at(i + 2) & 0x3F) << 6) | (str.at(i + 3) & 0x3F);
+        i += 4;
+    }
+    return std::bitset<32>(codepoint);
+}
+
+std::string codepoint_to_utf8(char32_t codepoint) {
+    std::string result;
+    if (codepoint <= 0x7F) {
+        result += static_cast<char>(codepoint);
+    } else if (codepoint <= 0x7FF) {
+        result += static_cast<char>(0xC0 | (codepoint >> 6));
+        result += static_cast<char>(0x80 | (codepoint & 0x3F));
+    } else if (codepoint <= 0xFFFF) {
+        result += static_cast<char>(0xE0 | (codepoint >> 12));
+        result += static_cast<char>(0x80 | ((codepoint >> 6) & 0x3F));
+        result += static_cast<char>(0x80 | (codepoint & 0x3F));
+    } else {
+        result += static_cast<char>(0xF0 | (codepoint >> 18));
+        result += static_cast<char>(0x80 | ((codepoint >> 12) & 0x3F));
+        result += static_cast<char>(0x80 | ((codepoint >> 6) & 0x3F));
+        result += static_cast<char>(0x80 | (codepoint & 0x3F));
+    }
+    return result;
+}
+
 std::string encrypt(const std::string& message, const std::string& key) {
     size_t key_length = key.length();
     std::string output;
 
-    for (size_t i = 0; i < message.length(); ++i) {
-        output += message.at(i) ^ key.at(i % key_length);
+    size_t message_index = 0;
+    size_t key_index = 0;
+
+    while (message_index < message.length()) {
+        std::bitset<32> message_cp = get_codepoint(message, message_index);
+        std::bitset<32> key_cp = get_codepoint(key, key_index);
+
+        std::bitset<32> encrypted_cp = message_cp ^ key_cp;
+        char32_t encrypted_codepoint = static_cast<char32_t>(encrypted_cp.to_ulong());
+
+        output += codepoint_to_utf8(encrypted_codepoint);
+
+        key_index = (key_index + 1) % key_length;
     }
 
     return key + output;
@@ -128,12 +179,23 @@ std::string encrypt(const std::string& message, const std::string& key) {
 
 std::string decrypt(const std::string& password) {
     std::string key = password.substr(0, 20);
-    std::string message = password.substr(20);
+    std::string encrypted_part = password.substr(20);
     size_t key_length = key.length();
     std::string output;
 
-    for (size_t i = 0; i < message.length(); ++i) {
-        output += message.at(i) ^ key.at(i % key_length);
+    size_t message_index = 0;
+    size_t key_index = 0;
+
+    while (message_index < encrypted_part.length()) {
+        std::bitset<32> encrypted_cp = get_codepoint(encrypted_part, message_index);
+        std::bitset<32> key_cp = get_codepoint(key, key_index);
+
+        std::bitset<32> decrypted_cp = encrypted_cp ^ key_cp;
+        char32_t decrypted_codepoint = static_cast<char32_t>(decrypted_cp.to_ulong());
+
+        output += codepoint_to_utf8(decrypted_codepoint);
+
+        key_index = (key_index + 1) % key_length;
     }
 
     return output;
@@ -152,14 +214,20 @@ std::expected<uint32_t, std::string> u32_validator(const std::string& is_num) {
 }
 
 current_user is_authorized(const crow::request& request, sqlite::database& db) {
-    std::string id_from_request = request.url_params.get("id") ? request.url_params.get("id") : "";
     std::string cookie = request.get_header_value("Cookie");
 
-    if (id_from_request.empty() || cookie.empty()) {
+    if (cookie.empty()) {
         return {false, 0, "", "ERROR: Missing ID or NOT auth"};
     }
 
-    std::expected<uint8_t, std::string> id = u32_validator(id_from_request);
+    std::string cookie_name = "user_id=";
+    size_t start = cookie.find(cookie_name);
+    if (start == std::string::npos) {
+        return {false, 0, "", "ERROR: Missing id in cookie"};
+    }
+    std::string id_from_cookie{cookie, start + cookie_name.size(), 4};
+
+    std::expected<uint8_t, std::string> id = u32_validator(id_from_cookie);
     std::string retrieved_session_token;
     uint32_t user_id;
 
@@ -169,16 +237,18 @@ current_user is_authorized(const crow::request& request, sqlite::database& db) {
         return {false, 0, "", "ERROR: Wrong ID format"};
     }
 
-    db << "SELECT session_token FROM sessions WHERE user_id = ?;"
-       << user_id 
-       >> [&retrieved_session_token](const std::string& token) { retrieved_session_token = token; };
-
-    std::string cookie_name = "session_token=";
-    size_t start = cookie.find(cookie_name);
+    cookie_name = "session_token=";
+    start = cookie.find(cookie_name);
     if (start == std::string::npos) {
         return {false, 0, "", "ERROR: Missing session token in cookie"};
     }
-    std::string session_token{cookie, start + cookie_name.size(), retrieved_session_token.size()};
+
+    std::string session_token{cookie, start + cookie_name.size(), 20};
+    db << "SELECT session_token FROM sessions WHERE session_token = ? AND user_id = ?;"
+       << session_token << user_id
+       >> [&retrieved_session_token](const std::string& token) { retrieved_session_token = token; };
+
+
 
     if ((retrieved_session_token != session_token) || retrieved_session_token.empty()) {
         return {false, 0, "", "ERROR: Not authorized"};
@@ -212,6 +282,7 @@ void display_image(crow::response& res, const std::string& filepath) {
 
     if (file) {
         std::stringstream buffer;
+
         buffer << file.rdbuf();
         res.add_header("Content-Length", std::to_string(buffer.str().size()));
         res.write(buffer.str());
@@ -236,12 +307,113 @@ void create_database(sqlite::database& db) {
           "   user_id INTEGER NOT NULL,"
           "   session_token CHAR(20) NOT NULL"
           ");";
+
+    db << "CREATE TABLE IF NOT EXISTS posts ("
+          "   _id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,"
+          "   user_id INTEGER NOT NULL,"
+          "   content TEXT NOT NULL,"
+          "   timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,"
+          "   FOREIGN KEY(user_id) REFERENCES user(_id)"
+          ");";
 }
 
 int32_t main() {
     crow::SimpleApp app;
     sqlite::database db("dbfile.db");
     create_database(db);
+
+    CROW_ROUTE(app, "/load_posts").methods(crow::HTTPMethod::Get)([&db](const crow::request& request) {
+        std::string page_param = (request.url_params.get("page"))? request.url_params.get("page") : "";
+        current_user user = is_authorized(request, db);
+
+        if (page_param.empty() || !user.logged_in) {
+            crow::mustache::template_t page = crow::mustache::load("error.html");
+            crow::json::wvalue context;
+            return page.render(context); 
+        }
+
+        std::expected<uint32_t, std::string> page_num_exp = u32_validator(page_param);
+        uint32_t page_num = 0;
+
+        if (page_num_exp) {
+            page_num = page_num_exp.value();
+        } else {
+            crow::mustache::template_t page = crow::mustache::load("error.html");
+            crow::json::wvalue context;
+            return page.render(context);  
+        }
+
+        crow::mustache::template_t page = crow::mustache::load("posts.html");
+        crow::json::wvalue json_data;
+        std::vector<crow::json::wvalue> posts;
+
+        db << "SELECT content, timestamp FROM posts WHERE user_id = ? ORDER BY timestamp DESC LIMIT 10 OFFSET ?;" 
+           << user.id << page_num * 10
+           >> [&](std::string content, std::string timestamp) {
+                crow::json::wvalue post;
+                post["content"] = content;
+                post["timestamp"] = timestamp;
+                posts.emplace_back(post);
+            };
+
+        json_data["posts"] = std::move(posts);
+        return page.render(json_data);
+    });
+
+    CROW_ROUTE(app, "/home").methods(crow::HTTPMethod::Get)([&db](const crow::request& request) {
+        std::string page_param = (request.url_params.get("page"))? request.url_params.get("page") : "";
+        current_user user = is_authorized(request, db);
+
+        if (page_param.empty() || !user.logged_in) {
+            crow::mustache::template_t page = crow::mustache::load("error.html");
+            crow::json::wvalue context;
+            return page.render(context); 
+        }
+
+        std::expected<uint32_t, std::string> page_num_exp = u32_validator(page_param);
+        uint32_t page_num = 0;
+
+        if (page_num_exp) {
+            page_num = page_num_exp.value();
+        } else {
+            crow::mustache::template_t page = crow::mustache::load("error.html");
+            crow::json::wvalue context;
+            return page.render(context);  
+        }
+
+        crow::mustache::template_t page = crow::mustache::load("posts.html");
+        crow::json::wvalue json_data;
+        std::vector<crow::json::wvalue> posts;
+
+        db << "SELECT content, timestamp FROM posts ORDER BY timestamp DESC LIMIT 10 OFFSET ?;" 
+           << page_num * 10
+           >> [&](std::string content, std::string timestamp) {
+                crow::json::wvalue post;
+                post["content"] = content;
+                post["timestamp"] = timestamp;
+                posts.emplace_back(post);
+            };
+
+        json_data["posts"] = std::move(posts);
+        return page.render(json_data);
+    });
+
+    CROW_ROUTE(app, "/submit_post").methods(crow::HTTPMethod::Post)([&db](const crow::request& request) {
+        std::string content = crow::json::load(request.body)["content"].s();
+        current_user user = is_authorized(request, db);
+
+        if (!user.logged_in) {
+            return crow::response(400, "Not authorized");
+        }
+
+        if (content.empty()) {
+            return crow::response(400, "Content cannot be empty");
+        }
+
+        db << "INSERT INTO posts (user_id, content) VALUES (?, ?);" 
+           << user.id << content;
+        return crow::response(200, "Post created successfully");
+    });
 
     CROW_ROUTE(app, "/profile_pictures/<string>") ([](const crow::request& req, crow::response& res, std::string filename) {
         std::string filepath = "./profile_pictures/" + filename; 
@@ -328,7 +500,8 @@ int32_t main() {
 
         crow::response response(301, "/logged_in"); 
         response.add_header("Set-Cookie", "session_token=" + token + "; Path=/; HttpOnly");
-        response.add_header("Location", "/logged_in?id=" + std::to_string(user_id));
+        response.add_header("Set-Cookie", "user_id=" + std::to_string(user_id) + "; Path=/; HttpOnly");
+        response.add_header("Location", "/");
         return response;
     });
 
@@ -375,15 +548,16 @@ int32_t main() {
 
         crow::response response(301, "/logged_in"); 
         response.add_header("Set-Cookie", "session_token=" + token + "; Path=/; HttpOnly");
-        response.add_header("Location", "/logged_in?id=" + std::to_string(user_id));
+        response.add_header("Set-Cookie", "user_id=" + std::to_string(user_id) + "; Path=/; HttpOnly");
+        response.add_header("Location", "/");
         return response;
     });
 
-    CROW_ROUTE(app, "/logged_in") ([&db](const crow::request& request) {
+    CROW_ROUTE(app, "/profile") ([&db](const crow::request& request) {
         current_user user = is_authorized(request, db);
 
         if (user.logged_in) {
-            crow::mustache::template_t page = crow::mustache::load("logged_in.html");
+            crow::mustache::template_t page = crow::mustache::load("profile.html");
             crow::json::wvalue json_data;
             std::vector<crow::json::wvalue> users;
 
@@ -501,7 +675,8 @@ int32_t main() {
     });
 
     CROW_ROUTE(app, "/delete_user") ([&db](const crow::request& request) {
-        current_user user = is_authorized(request, db);std::string profile_picture_path;
+        current_user user = is_authorized(request, db);
+        std::string profile_picture_path;
 
         if (user.logged_in) {
             db << "SELECT profile_picture FROM user WHERE _id = ?;" << user.id
@@ -545,8 +720,9 @@ int32_t main() {
         return crow::response(400, user.error_message);
     });
 
-    CROW_ROUTE(app, "/") ([&db]() {
-        crow::mustache::template_t page = crow::mustache::load("index.html");
+    CROW_ROUTE(app, "/") ([&db](const crow::request& request) {
+       current_user user = is_authorized(request, db);
+        crow::mustache::template_t page = (user.logged_in)? crow::mustache::load("home.html") : crow::mustache::load("index.html");
         crow::json::wvalue json_data;
 
         return page.render(json_data);
