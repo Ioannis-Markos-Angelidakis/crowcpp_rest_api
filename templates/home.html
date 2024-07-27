@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Post Page</title>
+    <link href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css" rel="stylesheet">
+</head>
+<body>
+    <nav class="navbar navbar-expand-lg navbar-light bg-light">
+        <a class="navbar-brand" href="./">PostPage</a>
+        <div class="navbar-collapse" id="navbarNav">
+            <ul class="navbar-nav ml-auto">
+                <li class="nav-item">
+                    <button class="btn btn-primary" onclick="window.location.href='/profile'">Profile</button>
+                </li>
+                <li class="nav-item">
+                    <button class="btn btn-danger ml-2" onclick="window.location.href='/logout'">Logout</button>
+                </li>
+            </ul>
+        </div>
+    </nav>
+
+    <div class="container mt-4">
+        <div class="row">
+            <div class="col-md-8 offset-md-2">
+                <h2 class="text-center">Create a Post</h2>
+                <form id="postForm">
+                    <div class="form-group">
+                        <label for="postContent">Your Post</label>
+                        <textarea class="form-control" id="postContent" name="content" rows="4" required></textarea>
+                    </div>
+                    <button type="submit" class="btn btn-success btn-block">Submit Post</button>
+                </form>
+
+                <hr>
+
+                <div id="posts">
+                    <!-- Posts will be rendered here by Mustache -->
+                    {{#posts}}
+                    <div class="card mb-3">
+                        <div class="card-body">
+                            <p class="card-text">{{content}}</p>
+                            <p class="text-muted text-right">{{timestamp}}</p>
+                            <button class="btn btn-primary like-button" data-post-id="{{post_id}}" data-user-id="{{user_id}}">Like</button>
+                        </div>
+                    </div>
+                    {{/posts}}
+                </div>
+
+                <div class="text-center mt-4">
+                    <button id="loadMore" class="btn btn-primary">Show More</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        document.body.onload = function get_posts() {
+            fetch(`/home?page=0`)
+                .then(response => response.text())
+                .then(html => {
+                    // Mustache-rendered HTML for posts
+                    document.getElementById('posts').insertAdjacentHTML('beforeend', html);
+                })
+                .catch(error => console.error('Error:', error));
+        }
+
+        let currentPage = 0;
+
+        document.getElementById('postForm').addEventListener('submit', function(e) {
+            e.preventDefault();
+            const content = document.getElementById('postContent').value;
+
+            fetch('/submit_post', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ content: content })
+            })
+            .then(response => {
+                if (!response.ok) {
+                    return response.text().then(text => {
+                        throw new Error(text);
+                    });
+                }
+                return response.json();
+            })
+            .then(data => {
+                const timestamp = new Date().toLocaleString();
+                const postId = data.post_id; // get post_id from response
+                const userId = data.user_id; // get user_id from response
+                const postElement = `
+                    <div class="card mb-3">
+                        <div class="card-body">
+                            <p class="card-text">${content}</p>
+                            <p class="text-muted text-right">${timestamp}</p>
+                            <div class="d-flex justify-content-between align-items-center">
+                                <button class="btn btn-primary like-button" data-post-id="${postId}" data-user-id="${userId}">Like</button>
+                                <span class="badge badge-info like-count">0 Likes</span>
+                            </div>
+                        </div>
+                    </div>
+                `;
+                document.getElementById('posts').insertAdjacentHTML('afterbegin', postElement);
+                document.getElementById('postContent').value = '';
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                alert('Error: ' + error.message);
+            });
+        });
+
+        document.getElementById('loadMore').addEventListener('click', function() {
+            currentPage += 1;
+            fetch(`/home?page=${currentPage}`)
+                .then(response => response.text())
+                .then(html => {
+                    // Mustache-rendered HTML for posts
+                    document.getElementById('posts').insertAdjacentHTML('beforeend', html);
+                })
+                .catch(error => console.error('Error:', error));
+        });
+
+        document.getElementById('posts').addEventListener('click', function(e) {
+            if (e.target.classList.contains('like-button')) {
+                const likeButton = e.target;
+                const postId = likeButton.getAttribute('data-post-id');
+                const userId = likeButton.getAttribute('data-user-id');
+
+                fetch('/like', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ post_id: postId, user_id: userId })
+                })
+                .then(response => response.text())
+                .then(message => {
+                    const likeCountElement = likeButton.nextElementSibling;
+                    const currentLikes = parseInt(likeCountElement.textContent.split(' ')[0]);
+
+                    if (message === 'Like added successfully') {
+                        // Increment the like count
+                        likeCountElement.textContent = `${currentLikes + 1} Likes`;
+                    } else if (message === 'Like removed successfully') {
+                        // Decrement the like count
+                        likeCountElement.textContent = `${currentLikes - 1} Likes`;
+                    } else {
+                        console.error('Error:', message);
+                    }
+                })
+                .catch(error => console.error('Error:', error));
+            }
+        });
+    </script>
+</body>
+</html>
