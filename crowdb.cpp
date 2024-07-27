@@ -315,12 +315,48 @@ void create_database(sqlite::database& db) {
           "   timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,"
           "   FOREIGN KEY(user_id) REFERENCES user(_id)"
           ");";
+
+    db << "CREATE TABLE IF NOT EXISTS post_likes ("
+        "   post_id INTEGER NOT NULL,"
+        "   user_id INTEGER NOT NULL,"
+        "   FOREIGN KEY(post_id) REFERENCES posts(_id),"
+        "   FOREIGN KEY(user_id) REFERENCES user(_id),"
+        "   PRIMARY KEY (post_id, user_id)"
+        ");";
 }
 
 int32_t main() {
     crow::SimpleApp app;
     sqlite::database db("dbfile.db");
     create_database(db);
+
+    CROW_ROUTE(app, "/like").methods(crow::HTTPMethod::Post)([&db](const crow::request& request) {
+        std::string post_id = crow::json::load(request.body)["post_id"].s();
+        current_user user = is_authorized(request, db);
+
+        if (!user.logged_in) {
+            return crow::response(400, "Not authorized");
+        }
+
+        if (post_id.empty()) {
+            return crow::response(400, "Post's id cannot be empty");
+        }
+
+        bool like_exists = false;
+        db << "SELECT 1 FROM post_likes WHERE post_id = ? AND user_id = ?;"
+        << post_id << user.id
+        >> [&like_exists](int) { like_exists = true; };
+
+        if (like_exists) {
+            db << "DELETE FROM post_likes WHERE post_id = ? AND user_id = ?;"
+            << post_id << user.id;
+            return crow::response(200, "Like removed successfully");
+        } else {
+            db << "INSERT INTO post_likes (post_id, user_id) VALUES (?, ?);"
+            << post_id << user.id;
+            return crow::response(200, "Like added successfully");
+        }
+    });
 
     CROW_ROUTE(app, "/load_posts").methods(crow::HTTPMethod::Get)([&db](const crow::request& request) {
         std::string page_param = (request.url_params.get("page"))? request.url_params.get("page") : "";
@@ -347,14 +383,30 @@ int32_t main() {
         crow::json::wvalue json_data;
         std::vector<crow::json::wvalue> posts;
 
-        db << "SELECT content, timestamp FROM posts WHERE user_id = ? ORDER BY timestamp DESC LIMIT 10 OFFSET ?;" 
-           << user.id << page_num * 10
-           >> [&](std::string content, std::string timestamp) {
-                crow::json::wvalue post;
-                post["content"] = content;
-                post["timestamp"] = timestamp;
-                posts.emplace_back(post);
-            };
+        db << R"(
+            SELECT 
+                posts._id AS post_id, 
+                posts.user_id AS author_id, 
+                posts.content, 
+                posts.timestamp, 
+                COUNT(post_likes.user_id) AS like_count
+            FROM posts
+            LEFT JOIN post_likes ON posts._id = post_likes.post_id
+            WHERE posts.user_id = ?
+            GROUP BY posts._id
+            ORDER BY posts.timestamp DESC 
+            LIMIT 10 OFFSET ?;
+        )"
+        << user.id << page_num * 10
+        >> [&posts](const uint32_t post_id, const uint32_t user_id, const std::string& content, const std::string& timestamp, const uint32_t like_count) {
+            crow::json::wvalue post;
+            post["post_id"] = post_id;
+            post["user_id"] = user_id;
+            post["content"] = content;
+            post["timestamp"] = timestamp;
+            post["like_count"] = like_count;
+            posts.emplace_back(post);
+        };
 
         json_data["posts"] = std::move(posts);
         return page.render(json_data);
@@ -385,14 +437,29 @@ int32_t main() {
         crow::json::wvalue json_data;
         std::vector<crow::json::wvalue> posts;
 
-        db << "SELECT content, timestamp FROM posts ORDER BY timestamp DESC LIMIT 10 OFFSET ?;" 
-           << page_num * 10
-           >> [&](std::string content, std::string timestamp) {
-                crow::json::wvalue post;
-                post["content"] = content;
-                post["timestamp"] = timestamp;
-                posts.emplace_back(post);
-            };
+        db << R"(
+            SELECT 
+                posts._id AS post_id, 
+                posts.user_id AS author_id, 
+                posts.content, 
+                posts.timestamp, 
+                COUNT(post_likes.user_id) AS like_count
+            FROM posts
+            LEFT JOIN post_likes ON posts._id = post_likes.post_id
+            GROUP BY posts._id
+            ORDER BY posts.timestamp DESC 
+            LIMIT 10 OFFSET ?;
+        )"
+        << page_num * 10
+        >> [&posts](const uint32_t post_id, uint32_t user_id, const std::string& content, const std::string& timestamp, const uint32_t like_count) {
+            crow::json::wvalue post;
+            post["post_id"] = post_id;
+            post["user_id"] = user_id;
+            post["content"] = content;
+            post["timestamp"] = timestamp;
+            post["like_count"] = like_count;
+            posts.emplace_back(post);
+        };
 
         json_data["posts"] = std::move(posts);
         return page.render(json_data);
@@ -412,7 +479,18 @@ int32_t main() {
 
         db << "INSERT INTO posts (user_id, content) VALUES (?, ?);" 
            << user.id << content;
-        return crow::response(200, "Post created successfully");
+
+        uint32_t post_id = 0;
+        db << "SELECT last_insert_rowid();" 
+           >> [&post_id](const uint32_t id) {
+            post_id = id;
+        };
+
+        crow::json::wvalue response;
+        response["post_id"] = post_id;
+        response["user_id"] = user.id;
+
+        return crow::response{response};
     });
 
     CROW_ROUTE(app, "/profile_pictures/<string>") ([](const crow::request& req, crow::response& res, std::string filename) {
@@ -727,6 +805,6 @@ int32_t main() {
 
         return page.render(json_data);
     });
-
+    
     app.bindaddr("ENTER HOSTING IPV4").port(18080).run();
 }
