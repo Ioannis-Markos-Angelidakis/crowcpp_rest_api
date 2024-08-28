@@ -56,17 +56,35 @@
     </div>
 
     <script>
-        document.body.onload = function get_posts() {
-            fetch(`/home?page=0`)
+        let currentPage = 0;
+        let previousPostsHTML = '';
+
+        function getPosts(page = 0) {
+            fetch(`/home?page=${page}`)
                 .then(response => response.text())
                 .then(html => {
-                    // Mustache-rendered HTML for posts
-                    document.getElementById('posts').insertAdjacentHTML('beforeend', html);
+                    if (html === previousPostsHTML) {
+                        console.log('No new posts to load');
+                        return;
+                    }
+
+                    if (page === 0) {
+                        document.getElementById('posts').innerHTML = html + previousPostsHTML;
+                    } else {
+                        document.getElementById('posts').insertAdjacentHTML('beforeend', html);
+                    }
+
+                    previousPostsHTML = html; // Update stored HTML
                 })
                 .catch(error => console.error('Error:', error));
         }
 
-        let currentPage = 0;
+        document.body.onload = function() {
+            getPosts();
+            setInterval(() => {
+                getPosts(0);
+            }, 5000); // Refresh posts every 5000 milliseconds (5 seconds)
+        };
 
         document.getElementById('postForm').addEventListener('submit', function(e) {
             e.preventDefault();
@@ -114,13 +132,8 @@
 
         document.getElementById('loadMore').addEventListener('click', function() {
             currentPage += 1;
-            fetch(`/home?page=${currentPage}`)
-                .then(response => response.text())
-                .then(html => {
-                    // Mustache-rendered HTML for posts
-                    document.getElementById('posts').insertAdjacentHTML('beforeend', html);
-                })
-                .catch(error => console.error('Error:', error));
+            previousPostsHTML = document.getElementById('posts').innerHTML;
+            getPosts(currentPage);
         });
 
         document.getElementById('posts').addEventListener('click', function(e) {
