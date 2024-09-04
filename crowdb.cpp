@@ -20,6 +20,7 @@ struct current_user {
     bool logged_in;
     uint32_t id;
     std::string session_token;
+    std::string name;
     std::string error_message;
 };
 
@@ -217,30 +218,31 @@ current_user is_authorized(const crow::request& request, sqlite::database& db) {
     std::string cookie = request.get_header_value("Cookie");
 
     if (cookie.empty()) {
-        return {false, 0, "", "ERROR: Missing ID or NOT auth"};
+        return {false, 0, "", "", "ERROR: Missing ID or NOT auth"};
     }
 
     std::string cookie_name = "user_id=";
     size_t start = cookie.find(cookie_name);
     if (start == std::string::npos) {
-        return {false, 0, "", "ERROR: Missing id in cookie"};
+        return {false, 0, "", "", "ERROR: Missing id in cookie"};
     }
     std::string id_from_cookie{cookie, start + cookie_name.size(), 4};
 
     std::expected<uint8_t, std::string> id = u32_validator(id_from_cookie);
     std::string retrieved_session_token;
+    std::string retrieved_user_name;
     uint32_t user_id;
 
     if (id) {
         user_id = id.value();
     } else {
-        return {false, 0, "", "ERROR: Wrong ID format"};
+        return {false, 0, "", "", "ERROR: Wrong ID format"};
     }
-
+ 
     cookie_name = "session_token=";
     start = cookie.find(cookie_name);
     if (start == std::string::npos) {
-        return {false, 0, "", "ERROR: Missing session token in cookie"};
+        return {false, 0, "",  "","ERROR: Missing session token in cookie"};
     }
 
     std::string session_token{cookie, start + cookie_name.size(), 20};
@@ -248,13 +250,15 @@ current_user is_authorized(const crow::request& request, sqlite::database& db) {
        << session_token << user_id
        >> [&retrieved_session_token](const std::string& token) { retrieved_session_token = token; };
 
-
+    db << "SELECT name FROM user WHERE _id = ?;"
+       << user_id
+       >> [&retrieved_user_name](const std::string& name) { retrieved_user_name = name; };
 
     if ((retrieved_session_token != session_token) || retrieved_session_token.empty()) {
-        return {false, 0, "", "ERROR: Not authorized"};
+        return {false, 0, "",  "", "ERROR: Not authorized"};
     }
 
-    return {true, user_id, retrieved_session_token, ""};
+    return {true, user_id,  retrieved_session_token, retrieved_user_name,""};
 }
 
 std::string session_token() {
@@ -295,34 +299,57 @@ void display_image(crow::response& res, const std::string& filepath) {
 }
 
 void create_database(sqlite::database& db) {
-    db << "CREATE TABLE IF NOT EXISTS user ("
-          "   _id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,"
-          "   name VARCHAR(25) NOT NULL,"
-          "   email VARCHAR(25) NOT NULL,"
-          "   password TEXT NOT NULL,"
-          "   profile_picture TEXT" 
-          ");";
+	db << R"(CREATE TABLE IF NOT EXISTS user (
+		_id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+		name VARCHAR(25) NOT NULL,
+		email VARCHAR(25) NOT NULL,
+		password TEXT NOT NULL,
+		profile_picture TEXT
+	);)";
 
-    db << "CREATE TABLE IF NOT EXISTS sessions ("
-          "   user_id INTEGER NOT NULL,"
-          "   session_token CHAR(20) NOT NULL"
-          ");";
+	db << R"(CREATE TABLE IF NOT EXISTS sessions (
+		user_id INTEGER NOT NULL,
+		session_token CHAR(20) NOT NULL,
+		PRIMARY KEY (user_id, session_token),
+		FOREIGN KEY(user_id) REFERENCES user(_id)
+	);)";
 
-    db << "CREATE TABLE IF NOT EXISTS posts ("
-          "   _id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,"
-          "   user_id INTEGER NOT NULL,"
-          "   content TEXT NOT NULL,"
-          "   timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,"
-          "   FOREIGN KEY(user_id) REFERENCES user(_id)"
-          ");";
+	db << R"(CREATE TABLE IF NOT EXISTS posts (
+		_id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+		user_id INTEGER NOT NULL,
+		content TEXT NOT NULL,
+		timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+        time_edited DATETIME,
+		FOREIGN KEY(user_id) REFERENCES user(_id)
+	);)";
 
-    db << "CREATE TABLE IF NOT EXISTS post_likes ("
-        "   post_id INTEGER NOT NULL,"
-        "   user_id INTEGER NOT NULL,"
-        "   FOREIGN KEY(post_id) REFERENCES posts(_id),"
-        "   FOREIGN KEY(user_id) REFERENCES user(_id),"
-        "   PRIMARY KEY (post_id, user_id)"
-        ");";
+	db << R"(CREATE TABLE IF NOT EXISTS replies (
+		_id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+		post_id INTEGER NOT NULL,
+		user_id INTEGER NOT NULL,
+		content TEXT NOT NULL,
+		timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+		parent_reply_id INTEGER,
+		FOREIGN KEY(post_id) REFERENCES posts(_id),
+		FOREIGN KEY(user_id) REFERENCES user(_id),
+		FOREIGN KEY(parent_reply_id) REFERENCES replies(_id)
+	);)";
+
+	db << R"(CREATE TABLE IF NOT EXISTS post_likes (
+		post_id INTEGER NOT NULL,
+		user_id INTEGER NOT NULL,
+		PRIMARY KEY (post_id, user_id),
+		FOREIGN KEY(post_id) REFERENCES posts(_id),
+		FOREIGN KEY(user_id) REFERENCES user(_id)
+	);)";
+
+	db << R"(CREATE TABLE IF NOT EXISTS reply_likes (
+		reply_id INTEGER NOT NULL,
+		user_id INTEGER NOT NULL,
+		PRIMARY KEY (reply_id, user_id),
+		FOREIGN KEY(reply_id) REFERENCES replies(_id),
+		FOREIGN KEY(user_id) REFERENCES user(_id)
+	);)";
 }
 
 int32_t main() {
@@ -358,7 +385,7 @@ int32_t main() {
         }
     });
 
-    CROW_ROUTE(app, "/load_posts").methods(crow::HTTPMethod::Get)([&db](const crow::request& request) {
+    CROW_ROUTE(app, "/load_my_posts").methods(crow::HTTPMethod::Get)([&db](const crow::request& request) {
         std::string page_param = (request.url_params.get("page"))? request.url_params.get("page") : "";
         current_user user = is_authorized(request, db);
 
@@ -392,16 +419,82 @@ int32_t main() {
                 COUNT(post_likes.user_id) AS like_count
             FROM posts
             LEFT JOIN post_likes ON posts._id = post_likes.post_id
-            WHERE posts.user_id = ?
+            WHERE author_id = ?
             GROUP BY posts._id
             ORDER BY posts.timestamp DESC 
             LIMIT 10 OFFSET ?;
         )"
         << user.id << page_num * 10
-        >> [&posts](const uint32_t post_id, const uint32_t user_id, const std::string& content, const std::string& timestamp, const uint32_t like_count) {
+        >> [&](const uint32_t post_id, const uint32_t user_id, const std::string& content, const std::string& timestamp, const uint32_t like_count) {
             crow::json::wvalue post;
             post["post_id"] = post_id;
             post["user_id"] = user_id;
+            if (user_id == user.id) {
+                post["editable"] = "editable";
+            }
+            post["content"] = content;
+            post["timestamp"] = timestamp;
+            post["like_count"] = like_count;
+            posts.emplace_back(post);
+        };
+
+        json_data["posts"] = std::move(posts);
+        return page.render(json_data);
+    });
+
+    CROW_ROUTE(app, "/load_users_posts/<int>").methods(crow::HTTPMethod::Get)([&db](const crow::request& request, const int32_t user_id) {
+        std::string page_param = (request.url_params.get("page"))? request.url_params.get("page") : "";
+
+        if (page_param.empty()) {
+            crow::mustache::template_t page = crow::mustache::load("error.html");
+            crow::json::wvalue context;
+            return page.render(context); 
+        }
+
+        std::expected<uint32_t, std::string> page_num_exp = u32_validator(page_param);
+        uint32_t page_num = 0;
+
+        if (page_num_exp) {
+            page_num = page_num_exp.value();
+        } else {
+            crow::mustache::template_t page = crow::mustache::load("error.html");
+            crow::json::wvalue context;
+            return page.render(context);  
+        }
+
+        if (user_id < 0) {
+            crow::mustache::template_t page = crow::mustache::load("error.html");
+            crow::json::wvalue context;
+            return page.render(context); 
+        }
+
+        crow::mustache::template_t page = crow::mustache::load("posts.html");
+        crow::json::wvalue json_data;
+        std::vector<crow::json::wvalue> posts;
+        current_user user = is_authorized(request, db);
+
+        db << R"(
+            SELECT 
+                posts._id AS post_id, 
+                posts.user_id AS author_id, 
+                posts.content, 
+                posts.timestamp, 
+                COUNT(post_likes.user_id) AS like_count
+            FROM posts
+            LEFT JOIN post_likes ON posts._id = post_likes.post_id
+            WHERE author_id = ?
+            GROUP BY posts._id
+            ORDER BY posts.timestamp DESC 
+            LIMIT 10 OFFSET ?;
+        )"
+        << user_id << page_num * 10
+        >> [&](const uint32_t post_id, const uint32_t user_id, const std::string& content, const std::string& timestamp, const uint32_t like_count) {
+            crow::json::wvalue post;
+            post["post_id"] = post_id;
+            post["user_id"] = user_id;
+            if (user_id == user.id) {
+                post["editable"] = "editable";
+            }
             post["content"] = content;
             post["timestamp"] = timestamp;
             post["like_count"] = like_count;
@@ -441,22 +534,32 @@ int32_t main() {
             SELECT 
                 posts._id AS post_id, 
                 posts.user_id AS author_id, 
+                user.name AS author_name, 
                 posts.content, 
                 posts.timestamp, 
+                posts.time_edited,
                 COUNT(post_likes.user_id) AS like_count
             FROM posts
             LEFT JOIN post_likes ON posts._id = post_likes.post_id
+            LEFT JOIN user ON posts.user_id = user._id
             GROUP BY posts._id
             ORDER BY posts.timestamp DESC 
             LIMIT 10 OFFSET ?;
         )"
-        << page_num * 10
-        >> [&posts](const uint32_t post_id, uint32_t user_id, const std::string& content, const std::string& timestamp, const uint32_t like_count) {
+        << page_num * 10 
+        >> [&](const uint32_t post_id, uint32_t user_id, const std::string& author_name, const std::string& content, const std::string& timestamp, const std::string& time_edited, const uint32_t like_count) {
             crow::json::wvalue post;
             post["post_id"] = post_id;
             post["user_id"] = user_id;
+            if (user_id == user.id) {
+                post["editable"] = post_id;
+            }
+            post["author_name"] = author_name;
             post["content"] = content;
             post["timestamp"] = timestamp;
+            if (!time_edited.empty()) {
+                post["edited"] = time_edited;
+            }
             post["like_count"] = like_count;
             posts.emplace_back(post);
         };
@@ -489,8 +592,66 @@ int32_t main() {
         crow::json::wvalue response;
         response["post_id"] = post_id;
         response["user_id"] = user.id;
+        response["user_name"] = user.name;
 
         return crow::response{response};
+    });
+
+    CROW_ROUTE(app, "/edit_post/<int>").methods(crow::HTTPMethod::Post)([&db](const crow::request& request, const int32_t post_id) {
+        std::string content = crow::json::load(request.body)["content"].s();
+        current_user user = is_authorized(request, db);
+
+        if (!user.logged_in) {
+            return crow::response(400, "Not authorized");
+        }
+
+        if (content.empty()) {
+            return crow::response(400, "Content cannot be empty");
+        }
+
+        // Check if the post exists and if the user is the owner
+        bool is_owner = false;
+        db << "SELECT COUNT(*) FROM posts WHERE _id = ? AND user_id = ?;"
+        << post_id << user.id
+        >> [&is_owner](int32_t count) {
+            is_owner = (count > 0);
+        };
+
+        if (!is_owner) {
+            return crow::response(403, "You are not allowed to edit this post");
+        }
+        db << "UPDATE posts SET content = ?, time_edited = datetime('now', 'localtime') WHERE (user_id = ? AND _id = ?);"
+           << content << user.id << post_id;
+
+        return crow::response{200, "Post updated successfully!"};
+    });
+
+    CROW_ROUTE(app, "/delete_post/<int>").methods(crow::HTTPMethod::Delete)([&db](const crow::request& request, int32_t post_id) {
+        current_user user = is_authorized(request, db);
+
+        if (!user.logged_in) {
+            return crow::response(400, "Not authorized");
+        }
+
+        // Check if the post exists and if the user is the owner
+        bool is_owner = false;
+        db << "SELECT COUNT(*) FROM posts WHERE _id = ? AND user_id = ?;"
+        << post_id << user.id
+        >> [&is_owner](int32_t count) {
+            is_owner = (count > 0);
+        };
+
+        if (!is_owner) {
+            return crow::response(403, "You are not allowed to delete this post");
+        }
+
+        db << "DELETE FROM post_likes WHERE post_id = ?;"
+        << post_id;
+
+        db << "DELETE FROM posts WHERE _id = ? AND user_id = ?;"
+        << post_id << user.id;
+
+        return crow::response(200, "Post and associated likes deleted successfully");
     });
 
     CROW_ROUTE(app, "/profile_pictures/<string>") ([](const crow::request& req, crow::response& res, std::string filename) {
@@ -558,7 +719,7 @@ int32_t main() {
                 if (part_value.body.starts_with(image.jpg) || part_value.body.starts_with(image.png) || part_value.body.starts_with(image.gif) || part_value.body.starts_with(image.bmp)) {
                     std::ofstream out_file(unique_filename, std::ofstream::out | std::ios::binary);
                     out_file.write(part_value.body.data(), part_value.body.length());
-                    profile_picture_path = unique_filename;
+                    profile_picture_path = "/." + unique_filename;
                 } else {
                     return crow::response(400, "UPLOAD FAILED: Not an image file");
                 }
@@ -641,13 +802,15 @@ int32_t main() {
 
             db << "SELECT _id, name, email, password, profile_picture FROM user WHERE _id = ?;" 
             << user.id 
-            >> [&users](const int32_t& id, const std::string& name, const std::string& email, const std::string& password, const std::string& profile_picture) {
+            >> [&users](const int32_t id, const std::string& name, const std::string& email, const std::string& password, const std::string& profile_picture) {
                 crow::json::wvalue user;
                 user["id"] = id;
                 user["name"] = name; 
                 user["email"] = email;
                 user["password"] = decrypt(password);
-                user["profile_picture"] = profile_picture; 
+                if (!profile_picture.empty()) {
+                    user["profile_picture"] = profile_picture; 
+                }
                 users.emplace_back(user);
             };
 
@@ -659,6 +822,27 @@ int32_t main() {
         crow::json::wvalue context;
         return page.render(context);  
     }); 
+ 
+    CROW_ROUTE(app, "/prof/<int>") ([&db](const int32_t user_id) {
+        crow::mustache::template_t page = crow::mustache::load("user_profile.html");
+        crow::json::wvalue json_data;
+        std::vector<crow::json::wvalue> users;
+
+        db << "SELECT _id, name, profile_picture FROM user WHERE _id = ?;" 
+            << user_id
+            >> [&users](const int32_t& id, const std::string& name, const std::string& profile_picture) {
+                crow::json::wvalue user;
+                user["id"] = id;
+                user["name"] = name; 
+                if (!profile_picture.empty()) {
+                    user["profile_picture"] = profile_picture; 
+                }
+                users.emplace_back(user);
+            };
+
+            json_data["users"] = std::move(users);
+        return page.render(json_data);
+    });
 
     CROW_ROUTE(app, "/edit_user").methods(crow::HTTPMethod::Post)([&db](const crow::request& request) {
         crow::multipart::message file_message(request);
@@ -716,7 +900,7 @@ int32_t main() {
                     if (part_value.body.starts_with(image.jpg) || part_value.body.starts_with(image.png) || part_value.body.starts_with(image.gif) || part_value.body.starts_with(image.bmp)) {
                         std::ofstream out_file(unique_filename, std::ofstream::out | std::ios::binary);
                         out_file.write(part_value.body.data(), part_value.body.length());
-                        profile_picture_path = unique_filename;
+                        profile_picture_path = "/." + unique_filename;
                     } else {
                         return crow::response(400, "UPLOAD FAILED: Not an image file");
                     }
