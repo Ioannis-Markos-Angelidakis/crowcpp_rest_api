@@ -3,12 +3,22 @@
     <div id="posts">
         <!-- Posts will be rendered here by Mustache -->
         {{#posts}}
-        <div class="card mb-3">
+        <div id="post-{{post_id}}" class="card mb-3">
             <div class="card-body">
-                <p class="card-text">{{content}}</p>
+                <a class="text-muted text-left" href="./prof/{{user_id}}">{{author_name}}</a>
+                <p class="card-text" id="{{post_id}}">{{content}}</p>
                 <p class="text-muted text-right">{{timestamp}}</p>
+                {{#edited}}
+                <p class="text-muted text-right">Edited at: {{edited}}</p>
+                {{/edited}}
                 <div class="d-flex justify-content-between align-items-center">
+                    <div>
                     <button class="btn btn-primary like-button" data-post-id="{{post_id}}" data-user-id="{{user_id}}">Like</button>
+                    {{#editable}}
+                    <button id="edit-{{post_id}}" class="btn btn-secondary" onclick="edit_post('{{post_id}}')">Edit</button>
+                    <button id="delete_post_{{post_id}}" class="btn btn-danger" onclick="delete_post('{{post_id}}')">Delete</button>
+                    {{/editable}}
+                    </div>
                     <span class="badge badge-info">{{like_count}} Likes</span>
                 </div>
             </div>
