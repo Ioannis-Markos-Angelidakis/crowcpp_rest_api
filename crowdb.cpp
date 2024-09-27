@@ -21,6 +21,7 @@ struct current_user {
     uint32_t id;
     std::string session_token;
     std::string name;
+    bool verified;
     std::string error_message;
 };
 
@@ -218,31 +219,32 @@ current_user is_authorized(const crow::request& request, sqlite::database& db) {
     std::string cookie = request.get_header_value("Cookie");
 
     if (cookie.empty()) {
-        return {false, 0, "", "", "ERROR: Missing ID or NOT auth"};
+        return {false, 0, "", "", false, "ERROR: Missing ID or NOT auth"};
     }
 
     std::string cookie_name = "user_id=";
     size_t start = cookie.find(cookie_name);
     if (start == std::string::npos) {
-        return {false, 0, "", "", "ERROR: Missing id in cookie"};
+        return {false, 0, "", "", false, "ERROR: Missing id in cookie"};
     }
     std::string id_from_cookie{cookie, start + cookie_name.size(), 4};
 
     std::expected<uint8_t, std::string> id = u32_validator(id_from_cookie);
     std::string retrieved_session_token;
     std::string retrieved_user_name;
+    bool retrieved_verified;
     uint32_t user_id;
 
     if (id) {
         user_id = id.value();
     } else {
-        return {false, 0, "", "", "ERROR: Wrong ID format"};
+        return {false, 0, "", "", false,  "ERROR: Wrong ID format"};
     }
  
     cookie_name = "session_token=";
     start = cookie.find(cookie_name);
     if (start == std::string::npos) {
-        return {false, 0, "",  "","ERROR: Missing session token in cookie"};
+        return {false, 0, "",  "", false, "ERROR: Missing session token in cookie"};
     }
 
     std::string session_token{cookie, start + cookie_name.size(), 20};
@@ -250,23 +252,23 @@ current_user is_authorized(const crow::request& request, sqlite::database& db) {
        << session_token << user_id
        >> [&retrieved_session_token](const std::string& token) { retrieved_session_token = token; };
 
-    db << "SELECT name FROM user WHERE _id = ?;"
+    db << "SELECT name, verified FROM user WHERE _id = ?;"
        << user_id
-       >> [&retrieved_user_name](const std::string& name) { retrieved_user_name = name; };
+       >> [&](const std::string& name, bool verified) { retrieved_user_name = name; retrieved_verified = verified; };
 
     if ((retrieved_session_token != session_token) || retrieved_session_token.empty()) {
-        return {false, 0, "",  "", "ERROR: Not authorized"};
+        return {false, 0, "",  "", false, "ERROR: Not authorized"};
     }
 
-    return {true, user_id,  retrieved_session_token, retrieved_user_name,""};
+    return {true, user_id,  retrieved_session_token, retrieved_user_name, retrieved_verified, ""};
 }
 
 std::string session_token() {
     const std::string characters = 
         "abcdefghijklmnopqrstuvwxyz"
         "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
-        "0123456789"
-        "!@#$%^&*()-_=+[]{}|:,.<>?/";
+        "0123456789";
+        //"!@#$%^&*()-_=+[]{}|:,.<>?/";
 
     std::random_device random_device;
     std::mt19937 generator(random_device());
@@ -298,14 +300,109 @@ void display_image(crow::response& res, const std::string& filepath) {
     }
 }
 
+int32_t send_verification_email(const std::string& email_to, const std::string& key) {
+    std::string email_from = "YOUR SMPT DETAILS HERE";
+    std::string smpt = "YOUR SMPT DETAILS HERE";
+    std::string user = "YOUR SMPT DETAILS HERE";
+    std::string file_name = "verify_" + email_to + ".eml";
+    std::string file_path = R"(.\)" + file_name;
+    std::string link = "http://YOUR IPV4/verify/" + email_to + "/" + key;
+
+    std::ofstream file(file_name, std::ofstream::out);
+
+    if (!file.is_open() || file.fail()) {
+        std::cerr << "Failed to create or open the file.\n";
+        return 1; // Exit with an error code
+    }
+
+    file << R"(from: )" + email_from + "\n"
+         << R"(To: )" + email_to + "\n"
+         << R"(Subject: Verify your email)" "\n"
+         << R"(Content-Type: text/html; charset=UTF-8)" "\n"
+         << R"(<html>)" "\n"
+         << R"(<body>)" "\n"
+         << R"(<h1>)" + link + R"(</h1>)" "\n"
+         << R"(<p>Click the link to verify your email.</p>)" "\n"
+         << R"(</body>)" "\n"
+         << R"(</html>)";
+    file.close();
+
+    const std::string command = R"(curl --url ")" + smpt + R"(" --ssl-reqd )"
+                                R"(--mail-from ")"+ email_from + R"(" )"
+                                R"(--mail-rcpt ")" + email_to + R"(" )"
+                                R"(--upload-file ")" + file_path + R"(" )"
+                                R"(--user ")" + user + R"(" )";
+    int32_t result = system(command.data());
+    
+    if (fs::exists(file_path)) {
+        fs::remove(file_path);
+    }
+
+    return result;
+}
+
+int32_t send_reset_email(const std::string& email_to, const std::string& key) {
+    std::string email_from = "YOUR SMPT DETAILS HERE";
+    std::string smpt = "YOUR SMPT DETAILS HERE";
+    std::string user = "YOUR SMPT DETAILS HERE";
+    std::string file_name = "reset_" + email_to + ".eml";
+    std::string file_path = R"(.\)" + file_name;
+    std::string link = "http://YOUR IPV4/reset_password/" + email_to + "/" + key;
+
+    std::ofstream file(file_name, std::ofstream::out);
+
+    if (!file.is_open() || file.fail()) {
+        std::cerr << "Failed to create or open the file.\n";
+        return 1; // Exit with an error code
+    }
+
+    file << R"(from: )" + email_from + "\n"
+         << R"(To: )" + email_to + "\n"
+         << R"(Subject: Reset password email)" "\n"
+         << R"(Content-Type: text/html; charset=UTF-8)" "\n"
+         << R"(<html>)" "\n"
+         << R"(<body>)" "\n"
+         << R"(<h1>)" + link + R"(</h1>)" "\n"
+         << R"(<p>Click the link to set your new password.</p>)" "\n"
+         << R"(</body>)" "\n"
+         << R"(</html>)";
+    file.close();
+
+    const std::string command = R"(curl --url ")" + smpt + R"(" --ssl-reqd )"
+                                R"(--mail-from ")"+ email_from + R"(" )"
+                                R"(--mail-rcpt ")" + email_to + R"(" )"
+                                R"(--upload-file ")" + file_path + R"(" )"
+                                R"(--user ")" + user + R"(" )";
+    int32_t result = system(command.data());
+    
+    if (fs::exists(file_path)) {
+        fs::remove(file_path);
+    }
+
+    return result;
+}
+
 void create_database(sqlite::database& db) {
 	db << R"(CREATE TABLE IF NOT EXISTS user (
 		_id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
 		name VARCHAR(25) NOT NULL,
 		email VARCHAR(25) NOT NULL,
 		password TEXT NOT NULL,
-		profile_picture TEXT
+		profile_picture TEXT,
+        verified BOOLEAN DEFAULT FALSE
 	);)";
+
+	db << R"(CREATE TABLE IF NOT EXISTS to_verify (
+		email VARCHAR(25) PRIMARY KEY NOT NULL,
+		key VARCHAR(25) NOT NULL
+	);)";
+
+    db << R"(
+        CREATE TABLE IF NOT EXISTS password_resets (
+        email TEXT PRIMARY KEY NOT NULL,
+        token TEXT NOT NULL,
+        expires_at DATETIME
+        );)";
 
 	db << R"(CREATE TABLE IF NOT EXISTS sessions (
 		user_id INTEGER NOT NULL,
@@ -328,6 +425,7 @@ void create_database(sqlite::database& db) {
 		post_id INTEGER NOT NULL,
 		user_id INTEGER NOT NULL,
 		content TEXT NOT NULL,
+        author TEXT NOT NULL,
 		timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
 		parent_reply_id INTEGER,
 		FOREIGN KEY(post_id) REFERENCES posts(_id),
@@ -357,11 +455,75 @@ int32_t main() {
     sqlite::database db("dbfile.db");
     create_database(db);
 
+    CROW_ROUTE(app, "/reset_password/<string>/<string>")([&db](const crow::request& req, std::string email, std::string token) {
+        uint32_t db_token = 0;
+        db << "SELECT COUNT(*) FROM password_resets WHERE (email = ? AND token = ?);" 
+        << email << token 
+        >> db_token;
+
+        crow::mustache::template_t page = crow::mustache::load("error.html");
+        crow::json::wvalue json_data;
+        std::vector<crow::json::wvalue> details;
+
+        if (db_token <= 0) {
+            json_data["error"] = "ERROR: Invalid details.";
+            return page.render(json_data);
+        }
+
+        page = crow::mustache::load("reset_password.html");
+        json_data["email"] = email;
+        json_data["token"] = token;
+        return page.render(json_data);
+    });
+
+    CROW_ROUTE(app, "/reset_password/<string>/<string>/<string>").methods(crow::HTTPMethod::Post)([&db](const crow::request& req, const std::string& email, const std::string& token, std::string new_password) {
+        uint32_t db_token = 0;
+        db << "SELECT COUNT(*) FROM password_resets WHERE (email = ? AND token = ?);" 
+           << email << token 
+           >> db_token;
+
+        if (db_token <= 0) {
+            return crow::response(400, "Invalid token");
+        }
+
+        std::string key = session_token();
+        std::string password = encrypt(new_password, key);
+        db << "UPDATE user SET password = ? WHERE email = ?;"
+           << password << email;
+
+        db << "DELETE FROM password_resets WHERE email = ?;" 
+           << email;
+
+        crow::response response(302, "/"); 
+        response.add_header("Location", "/");
+        return response;
+    });
+
+    CROW_ROUTE(app, "/forgot_password/<string>").methods(crow::HTTPMethod::Post)([&db](const crow::request& req, const std::string& email) {
+        uint32_t user_email = 0;
+        db << "SELECT COUNT(*) FROM user WHERE email = ?;" 
+        << email 
+        >> user_email;
+
+        if (user_email <= 0) {
+            return crow::response(400, "Email not found");
+        }
+
+        std::string reset_token = session_token();
+
+        db << "INSERT OR REPLACE INTO password_resets (email, token, expires_at) VALUES (?, ?, datetime('now', 'localtime'));"
+           << email << reset_token;
+
+        send_reset_email(email, reset_token);
+
+        return crow::response(200, "Password reset email sent");
+    });
+
     CROW_ROUTE(app, "/like").methods(crow::HTTPMethod::Post)([&db](const crow::request& request) {
         std::string post_id = crow::json::load(request.body)["post_id"].s();
         current_user user = is_authorized(request, db);
 
-        if (!user.logged_in) {
+        if (!user.logged_in || !user.verified) {
             return crow::response(400, "Not authorized");
         }
 
@@ -392,6 +554,12 @@ int32_t main() {
         if (page_param.empty() || !user.logged_in) {
             crow::mustache::template_t page = crow::mustache::load("error.html");
             crow::json::wvalue context;
+            context["error"] = "Please log in!";
+            return page.render(context); 
+        } else if (!user.verified) {
+            crow::mustache::template_t page = crow::mustache::load("error.html");
+            crow::json::wvalue context;
+            context["error"] = "Please verify your email first!";
             return page.render(context); 
         }
 
@@ -512,6 +680,12 @@ int32_t main() {
         if (page_param.empty() || !user.logged_in) {
             crow::mustache::template_t page = crow::mustache::load("error.html");
             crow::json::wvalue context;
+            context["error"] = "Please log in!";
+            return page.render(context); 
+        } else if (!user.verified) {
+            crow::mustache::template_t page = crow::mustache::load("error.html");
+            crow::json::wvalue context;
+            context["error"] = "Please verify your email first!";
             return page.render(context); 
         }
 
@@ -563,7 +737,7 @@ int32_t main() {
             post["like_count"] = like_count;
             posts.emplace_back(post);
         };
-
+    
         json_data["posts"] = std::move(posts);
         return page.render(json_data);
     });
@@ -572,7 +746,7 @@ int32_t main() {
         std::string content = crow::json::load(request.body)["content"].s();
         current_user user = is_authorized(request, db);
 
-        if (!user.logged_in) {
+        if (!user.logged_in || !user.verified) {
             return crow::response(400, "Not authorized");
         }
 
@@ -601,7 +775,7 @@ int32_t main() {
         std::string content = crow::json::load(request.body)["content"].s();
         current_user user = is_authorized(request, db);
 
-        if (!user.logged_in) {
+        if (!user.logged_in || !user.verified) {
             return crow::response(400, "Not authorized");
         }
 
@@ -629,7 +803,7 @@ int32_t main() {
     CROW_ROUTE(app, "/delete_post/<int>").methods(crow::HTTPMethod::Delete)([&db](const crow::request& request, int32_t post_id) {
         current_user user = is_authorized(request, db);
 
-        if (!user.logged_in) {
+        if (!user.logged_in || !user.verified) {
             return crow::response(400, "Not authorized");
         }
 
@@ -654,6 +828,104 @@ int32_t main() {
         return crow::response(200, "Post and associated likes deleted successfully");
     });
 
+CROW_ROUTE(app, "/reply/<int>").methods(crow::HTTPMethod::Post)([&db](const crow::request& request, int32_t post_id) {
+    auto body = crow::json::load(request.body);
+    std::string content = body["content"].s();
+    int32_t parent_reply_id = body.has("parent_reply_id") ? body["parent_reply_id"].i() : 0;
+
+    current_user user = is_authorized(request, db);
+
+    if (!user.logged_in || !user.verified) {
+        return crow::response(400, "Not authorized");
+    }
+
+    if (content.empty()) {
+        return crow::response(400, "Reply content cannot be empty");
+    }
+
+    std::string author;
+    if (parent_reply_id == 0) {
+        try {
+            db << "SELECT user.name FROM posts JOIN user ON posts.user_id = user._id WHERE posts._id = ?;"
+            << post_id
+            >> author;
+        }  catch (...) { 
+            return crow::response{"No such a post!"};
+        } 
+    } else {
+        try {
+            db << "SELECT user.name FROM replies JOIN user ON replies.user_id = user._id WHERE replies._id = ?;"
+            << parent_reply_id
+            >> author;
+        }  catch (...) { 
+            return crow::response{"No such a post!"};
+        } 
+    }
+
+    // Insert the reply into the replies table
+    db << "INSERT INTO replies (post_id, user_id, content, parent_reply_id, author, timestamp) VALUES (?, ?, ?, ?, ?, datetime('now', 'localtime'));"
+       << post_id << user.id << content << parent_reply_id << author;
+
+    uint32_t reply_id = 0;
+    db << "SELECT last_insert_rowid();" 
+       >> reply_id;
+
+    crow::json::wvalue response;
+    response["reply_id"] = reply_id;
+    response["user_id"] = user.id;
+    response["user_name"] = user.name;
+    response["author"] = author;
+    response["content"] = content;
+    response["parent_reply_id"] = parent_reply_id;
+
+    return crow::response{response};
+});
+
+    CROW_ROUTE(app, "/load_replies/<int>").methods(crow::HTTPMethod::Get)([&db](const crow::request& req, const int32_t post_id) {
+        std::string offset_check = req.url_params.get("offset") ? req.url_params.get("offset") : "";
+        std::string parent_reply_id_check = req.url_params.get("parent_reply_id") ? req.url_params.get("parent_reply_id") : "";
+
+        std::expected<uint32_t, std::string> offset_exp = u32_validator(offset_check);
+        uint32_t offset = 0;
+        std::expected<uint32_t, std::string> parent_reply_id_exp = u32_validator(parent_reply_id_check);
+        uint32_t parent_reply_id = 0;
+
+        if (offset_exp && parent_reply_id_exp) {
+            offset = offset_exp.value();
+            parent_reply_id = parent_reply_id_exp.value();
+        } else {
+            crow::mustache::template_t page = crow::mustache::load("error.html");
+            crow::json::wvalue context;
+            return page.render(context);  
+        }
+
+        crow::json::wvalue response;
+        std::vector<crow::json::wvalue> replies_list;
+
+        db << R"(
+                SELECT replies._id, user_id, content, timestamp, author, user.name, post_id FROM replies
+                JOIN user ON replies.user_id = user._id 
+                WHERE post_id = ? AND (parent_reply_id = ? OR ? = 0)
+                ORDER BY timestamp DESC LIMIT 5 OFFSET ?;
+            )"
+        << post_id << parent_reply_id << parent_reply_id << offset
+        >> [&](const int32_t reply_id, const int32_t user_id, const std::string& content, const std::string& timestamp, const std::string& user_name, const std::string& author, const int32_t post_id) {
+            crow::json::wvalue reply;
+            reply["reply_id"] = reply_id;
+            reply["post_id"] = post_id;
+            reply["user_id"] = user_id;
+            reply["content"] = content;
+            reply["timestamp"] = timestamp;
+            reply["author"] = author;
+            reply["user_name"] = user_name;
+            replies_list.emplace_back(reply);
+        };
+
+        crow::mustache::template_t page = crow::mustache::load("replies.html");
+        response["replies"] = std::move(replies_list);
+        return page.render(response);
+    });
+
     CROW_ROUTE(app, "/profile_pictures/<string>") ([](const crow::request& req, crow::response& res, std::string filename) {
         std::string filepath = "./profile_pictures/" + filename; 
         display_image(res, filepath);
@@ -675,7 +947,7 @@ int32_t main() {
                 return crow::response(400, "Email is EMPTY");
             } else if (part_name == "email") {
                 std::string db_email;
-                email = part_value.body;
+                email = part_value.body; 
                 db << "SELECT email FROM user WHERE email = ?;"
                    << email
                    >> [&db_email](const std::string _email){ db_email = _email; };
@@ -726,7 +998,13 @@ int32_t main() {
             }
         }
 
+        std::string verify_key = session_token();
+        db << "INSERT INTO to_verify (email, key) VALUES (?, ?);"
+           << email << verify_key;
+        send_verification_email(email, verify_key);
+
         std::string token = session_token();
+
         db << "INSERT INTO user (name, email, password, profile_picture) VALUES (?, ?, ?, ?);"
            << name << email << password << profile_picture_path;
 
@@ -741,6 +1019,35 @@ int32_t main() {
         response.add_header("Set-Cookie", "session_token=" + token + "; Path=/; HttpOnly");
         response.add_header("Set-Cookie", "user_id=" + std::to_string(user_id) + "; Path=/; HttpOnly");
         response.add_header("Location", "/");
+        return response;
+    });
+
+    CROW_ROUTE(app, "/verify/<string>/<string>") ([&db](const crow::request& req, std::string email, std::string key) {
+        current_user user = is_authorized(req, db);
+
+        if (!user.logged_in) {
+            crow::response response(400, "ERROR: Please login to verify."); 
+            return response;
+        }
+
+        std::string db_email;
+        std::string db_key;
+        
+        db << "SELECT * FROM to_verify;"
+           >> [&](std::string curr_email, std::string curr_key){ db_email = curr_email, db_key = curr_key; };
+
+        if (email == db_email && key == db_key) {
+            db << "UPDATE user SET verified = TRUE WHERE email = ?;"
+               << email;
+
+            db << "DELETE FROM to_verify WHERE email = ?;"
+               << email;
+            crow::response response(301, "/"); 
+            response.add_header("Location", "/");
+            return response;
+        } 
+
+        crow::response response(404, "ERROR:INVALID"); 
         return response;
     });
 
@@ -850,7 +1157,7 @@ int32_t main() {
 
         if (user.logged_in) {
             std::string name;
-            std::string email;
+            std::string new_email;
             std::string password;
             std::string remove_profile_pic;
 
@@ -858,7 +1165,34 @@ int32_t main() {
                 if (part_name == "name") {
                     name = part_value.body;
                 } else if (part_name == "email") {
-                    email = part_value.body;
+                    new_email = part_value.body;
+                    int32_t found = 0;
+                    std::string old_email;
+
+                    db << "SELECT email FROM user WHERE _id = ?;"
+                       << user.id
+                       >> old_email;
+
+                    db << "SELECT COUNT(*) FROM user WHERE email = ?;"
+                       << new_email
+                       >> found;
+
+                    if (found > 0 && old_email != new_email) {
+                        return crow::response(400, "ERROR: Email already exists!");
+                    } else if (old_email != new_email) {
+                        std::string key = session_token();
+                        send_verification_email(new_email, key);
+
+                        db << "INSERT INTO to_verify (email, key) VALUES(?, ?);"
+                           << new_email << key;
+
+                        db << "UPDATE user SET verified = FALSE WHERE email = ?;"
+                           << old_email;
+
+                        db << "DELETE FROM sessions WHERE (user_id = ? AND session_token != ?);"
+                           << user.id << user.session_token;
+                    }
+
                 } else if (part_name == "password") {
                     if (is_pass_ok(part_value.body) && part_value.body.length() >= 8) {
                         std::string key = session_token();
@@ -871,7 +1205,7 @@ int32_t main() {
                 }
             }
 
-            if (name.empty() || email.empty() || password.empty()) {
+            if (name.empty() || new_email.empty() || password.empty()) {
                 return crow::response(400, "ERROR: Empty field");
             }
 
@@ -911,8 +1245,8 @@ int32_t main() {
                 std::string profile_picture_delete;
 
                 db << "SELECT profile_picture FROM user WHERE _id = ?;" << user.id
-                >> [&profile_picture_delete](const std::string& profile_picture) {
-                    profile_picture_delete = profile_picture;
+                   >> [&profile_picture_delete](const std::string& profile_picture) {
+                       profile_picture_delete = profile_picture;
                 };
 
                 std::error_code error;
@@ -925,10 +1259,10 @@ int32_t main() {
                 }
 
                 db << "UPDATE user SET name = ?, email = ?, password = ?, profile_picture = ? WHERE _id = ?;"
-                << name << email << password << profile_picture_path << user.id;
+                   << name << new_email << password << profile_picture_path << user.id;
             } else {
                 db << "UPDATE user SET name = ?, email = ?, password = ? WHERE _id = ?;"
-                << name << email << password << user.id;
+                   << name << new_email << password << user.id;
             }
 
             return crow::response(200, "USER UPDATED SUCCESSFULLY");
@@ -970,10 +1304,10 @@ int32_t main() {
 
         if (user.logged_in) {
             db << "SELECT session_token FROM sessions WHERE user_id = ?;"
-            << user.id;
+               << user.id;
 
             db << "DELETE FROM sessions WHERE session_token = ?;"
-            << user.session_token;
+               << user.session_token;
 
             crow::response response(301, "/"); 
             response.add_header("Location", "/");
@@ -989,6 +1323,7 @@ int32_t main() {
 
         return page.render(json_data);
     });
+
     
     app.bindaddr("ENTER HOSTING IPV4").port(18080).run();
 }
