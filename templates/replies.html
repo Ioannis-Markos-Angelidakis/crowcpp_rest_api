@@ -1,0 +1,17 @@
+{{#replies}}
+<div id="replies">
+<div id="reply-{{reply_id}}" class="card mt-2">
+  <div class="card-body">
+      <a class="text-muted text-left" href="./prof/{{user_id}}">{{author}} replied to: {{user_name}}</a>
+      <p class="card-text">{{content}}</p>
+      <p class="text-muted text-right">{{timestamp}}</p>
+      <button class="btn btn-secondary" onclick="toggleReplyForm('{{post_id}}', '{{reply_id}}')">Reply</button>
+      
+      <!-- Placeholder for nested replies -->
+      <div id="replies-{{post_id}}" class="mt-3">
+          <!-- Nested replies will be rendered here -->
+      </div>
+  </div>
+</div>
+</div>
+{{/replies}}

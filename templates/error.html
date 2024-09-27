@@ -3,10 +3,17 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css">
-    <title>Login</title>
+    <title>Post Page</title>
+    <link href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css" rel="stylesheet">
 </head>
 <body>
-<h1>ERROR! {{error}}</h1>
+    <div class="alert alert-info text-center">
+        {{error}}
+		
+		{{^error}}
+		<h1>ERROR!</h1>
+		{{/error}}
+		
+     </div>
 </body>
 </html>

@@ -4,32 +4,45 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css">
-    <title>Login/Register</title>
+    <title>Login/Register/Reset Password</title>
 </head>
 <body>
     <div class="container">
         <h2 class="mt-4" id="formTitle">Login</h2>
         <form id="userForm" enctype="multipart/form-data">
             <input type="hidden" id="userId" name="id">
+            
             <div class="form-group" id="nameGroup" style="display: none;">
                 <label for="name">Name:</label>
                 <input type="text" class="form-control" id="name" name="name">
             </div>
+
             <div class="form-group">
                 <label for="email">Email:</label>
-                <input type="text" class="form-control" id="email" name="email">
+                <input type="text" class="form-control" id="email" name="email" required>
             </div>
-            <div class="form-group">
+
+            <div class="form-group" id="passwordGroup">
                 <label for="password">Password:</label>
                 <input type="password" class="form-control" id="password" name="password">
             </div>
+
+            <div class="form-group" id="confirmPasswordGroup" style="display: none;">
+                <label for="confirmPassword">Confirm Password:</label>
+                <input type="password" class="form-control" id="confirmPassword" name="confirmPassword">
+            </div>
+
             <div class="form-group" id="fileGroup" style="display: none;">
                 <label for="file">Profile Picture (Optional):</label>
                 <input type="file" class="form-control-file" id="file" name="file">
             </div>
+
             <button type="submit" class="btn btn-primary" id="submitButton">Login</button>
         </form>
-        <button class="btn btn-secondary mt-2" id="toggleButton">Switch to Register</button>
+        
+        <button class="btn btn-secondary mt-2" id="toggleRegisterButton">Switch to Register</button>
+        <button class="btn btn-secondary mt-2" id="toggleResetPasswordButton">Forgot Password</button>
+
         <div id="message" class="mt-4"></div>
     </div>
 
@@ -38,39 +51,67 @@
         const messageDiv = document.getElementById("message");
         const formTitle = document.getElementById("formTitle");
         const submitButton = document.getElementById("submitButton");
-        const toggleButton = document.getElementById("toggleButton");
+        const toggleRegisterButton = document.getElementById("toggleRegisterButton");
+        const toggleResetPasswordButton = document.getElementById("toggleResetPasswordButton");
+
         const nameGroup = document.getElementById("nameGroup");
+        const passwordGroup = document.getElementById("passwordGroup");
+        const confirmPasswordGroup = document.getElementById("confirmPasswordGroup");
         const fileGroup = document.getElementById("fileGroup");
 
-        let isLogin = true;
+        let mode = "login";  // Can be "login", "register", or "resetPassword"
 
-        toggleButton.addEventListener("click", function() {
-            isLogin = !isLogin;
-            if (isLogin) {
-                formTitle.textContent = "Login";
-                submitButton.textContent = "Login";
-                toggleButton.textContent = "Switch to Register";
-                nameGroup.style.display = "none";
-                fileGroup.style.display = "none";
-                document.getElementById('file').removeAttribute('name');
+        toggleRegisterButton.addEventListener("click", function() {
+            if (mode === "login" || mode === "resetPassword") {
+                switchToRegister();
             } else {
-                formTitle.textContent = "Register";
-                submitButton.textContent = "Register";
-                toggleButton.textContent = "Switch to Login";
-                nameGroup.style.display = "block";
-                fileGroup.style.display = "block";
+                switchToLogin();
             }
-            clearForm();
+        });
+
+        toggleResetPasswordButton.addEventListener("click", function() {
+            if (mode !== "resetPassword") {
+                switchToResetPassword();
+            } else {
+                switchToLogin();
+            }
         });
 
         userForm.addEventListener("submit", function(event) {
             event.preventDefault();
-            if (!isLogin && document.getElementById('file').files.length <= 0) {
+
+            const email = document.getElementById('email').value;
+
+            if (mode === "resetPassword") {
+                fetch(`/forgot_password/${email}`, {
+                    method: "POST"  // Assuming you're using POST for sending reset requests
+                })
+                .then(response => {
+                    if (!response.ok) {
+                        return response.text().then(errorText => {
+                            throw new Error(errorText || 'An error occurred');
+                        });
+                    }
+                    return response.text();  // Get the response text for success
+                })
+                .then(data => {
+                    messageDiv.innerText = data;  // Display the server response
+                    clearForm();  // Optionally clear the form after submission
+                })
+                .catch((error) => {
+                    messageDiv.innerText = `Error: ${error.message}`;
+                    console.error('There was a problem with the fetch operation:', error);
+                });
+
+                return; // Prevent further processing
+            }
+
+            if (document.getElementById('file').files.length <= 0) {
                 document.getElementById('file').removeAttribute('name');
             }
+            
             const formData = new FormData(userForm);
-            const userId = document.getElementById("userId").value;
-            const url = isLogin ? "./login" : (userId ? `./edit_user?id=${userId}` : "./register");
+            const url = mode === "login" ? "./login" : "./register";
 
             fetch(url, {
                 method: "POST",
@@ -88,7 +129,7 @@
                 }
             })
             .then(data => {
-                messageDiv.innerText = userId ? "User updated successfully." : "User added successfully.";
+                messageDiv.innerText = mode === "login" ? "Login successful." : "Registration successful.";
                 clearForm();
             })
             .catch((error) => {
@@ -101,6 +142,50 @@
             userForm.reset();
             document.getElementById("userId").value = '';
         }
+
+        function switchToRegister() {
+            mode = "register";
+            formTitle.textContent = "Register";
+            submitButton.textContent = "Register";
+            toggleRegisterButton.textContent = "Switch to Login";
+            toggleResetPasswordButton.style.display = "none";  // Hide reset password option in Register mode
+
+            nameGroup.style.display = "block";
+            passwordGroup.style.display = "block";
+            confirmPasswordGroup.style.display = "block";
+            fileGroup.style.display = "block";
+        }
+
+        function switchToLogin() {
+            mode = "login";
+            formTitle.textContent = "Login";
+            submitButton.textContent = "Login";
+            toggleRegisterButton.textContent = "Switch to Register";
+            toggleResetPasswordButton.textContent = "Forgot Password";
+            toggleResetPasswordButton.style.display = "inline-block";  // Show reset password option
+
+            nameGroup.style.display = "none";
+            passwordGroup.style.display = "block";
+            confirmPasswordGroup.style.display = "none";
+            fileGroup.style.display = "none";
+        }
+
+        function switchToResetPassword() {
+            mode = "resetPassword";
+            formTitle.textContent = "Reset Password";
+            submitButton.textContent = "Send Reset Link";
+            toggleRegisterButton.textContent = "Switch to Login";
+            toggleResetPasswordButton.textContent = "Switch to Login";
+            toggleResetPasswordButton.style.display = "inline-block";  // Show reset password option
+
+            nameGroup.style.display = "none";
+            passwordGroup.style.display = "none";
+            confirmPasswordGroup.style.display = "none";
+            fileGroup.style.display = "none";
+        }
+
+        // Initialize form in login mode
+        switchToLogin();
     </script>
 </body>
 </html>
