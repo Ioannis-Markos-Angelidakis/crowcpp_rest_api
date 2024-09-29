@@ -10,12 +10,25 @@
 namespace fs = std::filesystem;
 
 struct image_format {
-    std::string_view jpg = "\xFF\xD8\xFF";
-    std::string_view png = "\x89\x50\x4E\x47\x0D\x0A\x1A\x0A";
-    std::string_view gif = "\x47\x49\x46\x38";
-    std::string_view bmp = "\x42\x4D";
+    const std::string_view jpg = "\xFF\xD8\xFF";
+    const std::string_view png = "\x89\x50\x4E\x47\x0D\x0A\x1A\x0A";
+    const std::string_view gif = "\x47\x49\x46\x38";
+    const std::string_view bmp = "\x42\x4D";
 }image;
- 
+
+struct char_range{
+    const std::string links = 
+        "abcdefghijklmnopqrstuvwxyz"
+        "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+        "0123456789";
+
+    const std::string any = 
+        "abcdefghijklmnopqrstuvwxyz"
+        "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+        "0123456789"
+        "!@#$%^&*()-_=+[]{}|:,.<>?/";
+};
+
 struct current_user {
     bool logged_in;
     uint32_t id;
@@ -263,21 +276,16 @@ current_user is_authorized(const crow::request& request, sqlite::database& db) {
     return {true, user_id,  retrieved_session_token, retrieved_user_name, retrieved_verified, ""};
 }
 
-std::string session_token() {
-    const std::string characters = 
-        "abcdefghijklmnopqrstuvwxyz"
-        "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
-        "0123456789";
-        //"!@#$%^&*()-_=+[]{}|:,.<>?/";
+std::string session_token(const std::string& char_range, size_t size) {
 
     std::random_device random_device;
     std::mt19937 generator(random_device());
-    std::uniform_int_distribution<> distribution(0, characters.size() - 1);
+    std::uniform_int_distribution<> distribution(0, char_range.size() - 1);
 
     std::string random_string;
 
-    for (uint32_t i = 0; i < 20; ++i) {
-        random_string += characters[distribution(generator)];
+    for (uint32_t i = 0; i < size; ++i) {
+        random_string += char_range[distribution(generator)];
     }
 
     return random_string;
@@ -301,12 +309,12 @@ void display_image(crow::response& res, const std::string& filepath) {
 }
 
 int32_t send_verification_email(const std::string& email_to, const std::string& key) {
-    std::string email_from = "YOUR SMPT DETAILS HERE";
-    std::string smpt = "YOUR SMPT DETAILS HERE";
-    std::string user = "YOUR SMPT DETAILS HERE";
+    std::string email_from = "ADD YOUR SMPT DETAILS HERE";
+    std::string smpt = "ADD YOUR SMPT DETAILS HERE";
+    std::string user = "ADD YOUR SMPT DETAILS HERE";
     std::string file_name = "verify_" + email_to + ".eml";
     std::string file_path = R"(.\)" + file_name;
-    std::string link = "http://YOUR IPV4/verify/" + email_to + "/" + key;
+    std::string link = "ADD YOUR IPV4 IP HERE/verify/" + email_to + "/" + key;
 
     std::ofstream file(file_name, std::ofstream::out);
 
@@ -322,7 +330,7 @@ int32_t send_verification_email(const std::string& email_to, const std::string& 
          << R"(<html>)" "\n"
          << R"(<body>)" "\n"
          << R"(<h1>)" + link + R"(</h1>)" "\n"
-         << R"(<p>Click the link to verify your email.</p>)" "\n"
+         << R"(<h2><a href =")" + link + R"("> Click here to verify your email</a></h2>)" "\n"
          << R"(</body>)" "\n"
          << R"(</html>)";
     file.close();
@@ -342,12 +350,12 @@ int32_t send_verification_email(const std::string& email_to, const std::string& 
 }
 
 int32_t send_reset_email(const std::string& email_to, const std::string& key) {
-    std::string email_from = "YOUR SMPT DETAILS HERE";
-    std::string smpt = "YOUR SMPT DETAILS HERE";
-    std::string user = "YOUR SMPT DETAILS HERE";
+    std::string email_from = "ADD YOUR SMPT DETAILS HERE";
+    std::string smpt = "ADD YOUR SMPT DETAILS HERE";
+    std::string user = "ADD YOUR SMPT DETAILS HERE";
     std::string file_name = "reset_" + email_to + ".eml";
     std::string file_path = R"(.\)" + file_name;
-    std::string link = "http://YOUR IPV4/reset_password/" + email_to + "/" + key;
+    std::string link = "ADD YOUR IPV4 IP HERE/reset_password/" + email_to + "/" + key;
 
     std::ofstream file(file_name, std::ofstream::out);
 
@@ -362,7 +370,7 @@ int32_t send_reset_email(const std::string& email_to, const std::string& key) {
          << R"(Content-Type: text/html; charset=UTF-8)" "\n"
          << R"(<html>)" "\n"
          << R"(<body>)" "\n"
-         << R"(<h1>)" + link + R"(</h1>)" "\n"
+         << R"(<h2><a href =")" + link + R"("> Click here to reset</a></h2>)" "\n"
          << R"(<p>Click the link to set your new password.</p>)" "\n"
          << R"(</body>)" "\n"
          << R"(</html>)";
@@ -486,7 +494,8 @@ int32_t main() {
             return crow::response(400, "Invalid token");
         }
 
-        std::string key = session_token();
+        char_range range;
+        std::string key = session_token(range.any, 20);
         std::string password = encrypt(new_password, key);
         db << "UPDATE user SET password = ? WHERE email = ?;"
            << password << email;
@@ -509,7 +518,8 @@ int32_t main() {
             return crow::response(400, "Email not found");
         }
 
-        std::string reset_token = session_token();
+        char_range range;
+        std::string reset_token = session_token(range.links, 20);
 
         db << "INSERT OR REPLACE INTO password_resets (email, token, expires_at) VALUES (?, ?, datetime('now', 'localtime'));"
            << email << reset_token;
@@ -959,7 +969,8 @@ CROW_ROUTE(app, "/reply/<int>").methods(crow::HTTPMethod::Post)([&db](const crow
                 return crow::response(400, "Password is EMPTY");
             } else if (part_name == "password") {
                     if (is_pass_ok(part_value.body) && part_value.body.length() >= 8) {
-                        std::string key = session_token();
+                        char_range range;
+                        std::string key = session_token(range.any, 20);
                         password = encrypt(part_value.body, key);
                     } else {
                         return crow::response(400, "ERROR: Password needs to be at least 8 chars with a symbol, number, capital letter");
@@ -997,13 +1008,14 @@ CROW_ROUTE(app, "/reply/<int>").methods(crow::HTTPMethod::Post)([&db](const crow
                 }
             }
         }
-
-        std::string verify_key = session_token();
+        
+        char_range range;
+        std::string verify_key = session_token(range.links, 20);
         db << "INSERT INTO to_verify (email, key) VALUES (?, ?);"
            << email << verify_key;
         send_verification_email(email, verify_key);
 
-        std::string token = session_token();
+        std::string token = session_token(range.any, 20);
 
         db << "INSERT INTO user (name, email, password, profile_picture) VALUES (?, ?, ?, ?);"
            << name << email << password << profile_picture_path;
@@ -1068,7 +1080,8 @@ CROW_ROUTE(app, "/reply/<int>").methods(crow::HTTPMethod::Post)([&db](const crow
             }
         }
 
-        std::string token = session_token();
+        char_range range;
+        std::string token = session_token(range.any, 20);
         int32_t user_id;
         bool id_exists = false;
 
@@ -1180,7 +1193,8 @@ CROW_ROUTE(app, "/reply/<int>").methods(crow::HTTPMethod::Post)([&db](const crow
                     if (found > 0 && old_email != new_email) {
                         return crow::response(400, "ERROR: Email already exists!");
                     } else if (old_email != new_email) {
-                        std::string key = session_token();
+                        char_range range;
+                        std::string key = session_token(range.links, 20);
                         send_verification_email(new_email, key);
 
                         db << "INSERT INTO to_verify (email, key) VALUES(?, ?);"
@@ -1195,7 +1209,8 @@ CROW_ROUTE(app, "/reply/<int>").methods(crow::HTTPMethod::Post)([&db](const crow
 
                 } else if (part_name == "password") {
                     if (is_pass_ok(part_value.body) && part_value.body.length() >= 8) {
-                        std::string key = session_token();
+                        char_range range;
+                        std::string key = session_token(range.any, 20);
                         password = encrypt(part_value.body, key);
                     } else {
                         return crow::response(400, "ERROR: Password needs to be at least 8 chars with a symbol, number, capital letter");
@@ -1323,7 +1338,6 @@ CROW_ROUTE(app, "/reply/<int>").methods(crow::HTTPMethod::Post)([&db](const crow
 
         return page.render(json_data);
     });
-
-    
+	
     app.bindaddr("ENTER HOSTING IPV4").port(18080).run();
 }
