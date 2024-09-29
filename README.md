@@ -13,7 +13,7 @@
   <li>Email notifications using <code>curl</code> for password reset functionality</li>
 </ul>
 
-<h2>Routes</h2>
+<h2>Some of the routes</h2>
 <ul>
   <li><code>/forgot_password/&lt;string&gt;</code> - Initiates a password reset process for the user with the provided email address.</li>
   <li><code>/reset_password</code> - Displays the password reset form, with token and email validation against the database.</li>
@@ -46,7 +46,7 @@ mkdir build
 cd build
 cmake ..
 make
-./server
+./account
 </code></pre>
 
 <p>This project uses <code>FetchContent</code> to download dependencies (CrowCpp and SqliteModernCpp) as part of the CMake configuration. Below is the relevant CMake file:</p>
