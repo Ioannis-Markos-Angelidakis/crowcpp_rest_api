@@ -13,20 +13,32 @@
   <li>Email notifications using <code>curl</code> for password reset functionality</li>
 </ul>
 
-<h2>Some of the routes</h2>
+<h2>Routes</h2>
 <ul>
-  <li><code>/forgot_password/&lt;string&gt;</code> - Initiates a password reset process for the user with the provided email address.</li>
-  <li><code>/reset_password</code> - Displays the password reset form, with token and email validation against the database.</li>
-  <li><code>/</code> - Displays the home page of the application.</li>
-  <li><code>/login</code> - Renders the login page and handles user authentication.</li>
-  <li><code>/register</code> - Renders the registration page and handles user signup process.</li>
-  <li><code>/forgot_password/&lt;string&gt;</code> - Initiates a password reset process for the user with the provided email address.</li>
-  <li><code>/reset_password</code> - Displays the password reset form. Token and email are validated against the database.</li>
-  <li><code>/post</code> - Allows authenticated users to create a new post.</li>
-  <li><code>/post/&lt;id&gt;</code> - Displays a specific post based on its ID and allows users to view or reply.</li>
-  <li><code>/reply</code> - Allows users to reply to posts or comments.</li>
-  <li><code>/user/&lt;id&gt;</code> - Displays user profiles and their posts.</li>
+  <li><code>/reset_password/&lt;string&gt;/&lt;string&gt;</code> - GET request for displaying the password reset page with email and token validation.</li>
+  <li><code>/reset_password/&lt;string&gt;/&lt;string&gt;/&lt;string&gt;</code> - POST request for handling password reset with a new password.</li>
+  <li><code>/forgot_password/&lt;string&gt;</code> - POST request for sending a password reset email.</li>
+  <li><code>/like</code> - POST request for liking or unliking a post.</li>
+  <li><code>/load_my_posts</code> - GET request to load the current user's posts.</li>
+  <li><code>/load_users_posts/&lt;int&gt;</code> - GET request to load posts by a specific user.</li>
+  <li><code>/home</code> - GET request to load the homepage with recent posts.</li>
+  <li><code>/submit_post</code> - POST request for submitting a new post.</li>
+  <li><code>/edit_post/&lt;int&gt;</code> - POST request for editing a specific post.</li>
+  <li><code>/delete_post/&lt;int&gt;</code> - DELETE request for deleting a specific post.</li>
+  <li><code>/reply/&lt;int&gt;</code> - POST request for replying to a specific post.</li>
+  <li><code>/load_replies/&lt;int&gt;</code> - GET request to load replies for a specific post.</li>
+  <li><code>/profile_pictures/&lt;string&gt;</code> - GET request to display a profile picture.</li>
+  <li><code>/register</code> - POST request to register a new user.</li>
+  <li><code>/verify/&lt;string&gt;/&lt;string&gt;</code> - GET request for verifying the user's email.</li>
+  <li><code>/login</code> - POST request for logging in a user.</li>
+  <li><code>/profile</code> - GET request to display the logged-in user's profile.</li>
+  <li><code>/prof/&lt;int&gt;</code> - GET request to display another user's profile.</li>
+  <li><code>/edit_user</code> - POST request to edit the logged-in user's profile.</li>
+  <li><code>/delete_user</code> - DELETE request to delete the logged-in user's account.</li>
+  <li><code>/logout</code> - GET request to log out the current user.</li>
+  <li><code>/</code> - GET request to load the homepage or login page, depending on the user's session.</li>
 </ul>
+
 
 <h2>Technologies Used</h2>
 <ul>
