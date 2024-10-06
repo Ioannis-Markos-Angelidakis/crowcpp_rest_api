@@ -341,21 +341,28 @@
         .then(response => response.json())
         .then(data => {
             // Append the new reply under the original reply
-            const repliesSection = document.getElementById(`replies-${parentReplyId || postId}`);
+            const timestamp = new Date().toLocaleString(); 
+            const repliesSection = parentReplyId === 0? document.getElementById(`replies-${postId}`) : document.getElementById(`reply-${parentReplyId}`);
             const newReplyHtml = `
                 <div id="reply-${data.reply_id}" class="card mt-2">
-                    <div class="card-body">
-                        <a class="text-muted text-left" href="./prof/${data.user_id}">${data.user_name}</a>
-                        <p class="card-text">${data.content}</p>
-                        <p class="text-muted text-right">${data.timestamp}</p>
-                    </div>
+                <div class="card-body">
+                    <a class="text-muted text-left" href="./prof/${data.user_id}">${data.user_name} replied to: ${data.author}</a>
+                    <p class="card-text">${data.content}</p>
+                    <p class="text-muted text-right">${timestamp}</p>
+                    <button class="btn btn-secondary" onclick="toggleReplyForm('${postId}', '${data.reply_id}')">Reply</button>
+                </div>
                 </div>
             `;
             repliesSection.insertAdjacentHTML('beforeend', newReplyHtml);
 
             // Clear the reply content and hide the reply form
+            
             document.getElementById(`replyContent-${postId}-${parentReplyId}`).value = '';
-            document.getElementById(`reply-form-${parentReplyId}`).style.display = 'none';
+            if (parentReplyId === 0) {
+                document.getElementById(`reply-form-post-${postId}`).style.display = 'none';
+            } else {
+                document.getElementById(`reply-form-${parentReplyId}`).style.display = 'none';
+            }
         })
         .catch(error => {
             console.error('Error submitting reply:', error);

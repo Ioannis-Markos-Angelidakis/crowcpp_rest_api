@@ -213,6 +213,135 @@
                 alert('Error deleting the post: ' + error.message);
             });
         }
+
+        function toggleReplyForm(postId, parentReplyId = 0) {
+        let replyForm;
+
+        if (parentReplyId === 0) {
+            // If it's a reply to the post, the reply form should be added above the replies
+            replyForm = document.getElementById(`reply-form-post-${postId}`);
+            
+            if (!replyForm) {
+                // Create the reply form dynamically for the post
+                const newReplyFormHtml = `
+                    <div id="reply-form-post-${postId}" class="mt-3">
+                        <textarea class="form-control" id="replyContent-${postId}-${parentReplyId}" rows="3" placeholder="Write your reply"></textarea>
+                        <button class="btn btn-success btn-sm mt-2" onclick="submitReply(${postId}, 0)">Send</button>
+                    </div>
+                `;
+                // Insert the new reply form before the replies section (not at the end of the post)
+                const postDiv = document.getElementById(`post-${postId}`);
+                const repliesSection = document.getElementById(`replies-${postId}`);
+
+                if (repliesSection) {
+                    postDiv.insertAdjacentHTML('beforebegin', newReplyFormHtml);
+                } else {
+                    postDiv.insertAdjacentHTML('beforeend', newReplyFormHtml);
+                }
+            } else {
+                // Toggle the visibility if it already exists
+                replyForm.style.display = replyForm.style.display === 'none' ? 'block' : 'none';
+            }
+        } else {
+            // If it's a reply to a reply, handle it like before
+            replyForm = document.getElementById(`reply-form-${parentReplyId}`);
+            
+            if (!replyForm) {
+                // Create the reply form dynamically for the reply
+                const newReplyFormHtml = `
+                    <div id="reply-form-${parentReplyId}" class="mt-3">
+                        <textarea class="form-control" id="replyContent-${postId}-${parentReplyId}" rows="3" placeholder="Write your reply"></textarea>
+                        <button class="btn btn-success btn-sm mt-2" onclick="submitReply(${postId}, ${parentReplyId})">Send</button>
+                    </div>
+                `;
+                // Insert the new reply form below the reply content
+                const parentReplyDiv = document.getElementById(`reply-${parentReplyId}`);
+                parentReplyDiv.insertAdjacentHTML('beforeend', newReplyFormHtml);
+            } else {
+                // Toggle visibility if the form already exists
+                replyForm.style.display = replyForm.style.display === 'none' ? 'block' : 'none';
+            }
+        }
+}
+
+    // Submit a reply to a post or reply
+    function submitReply(postId, parentReplyId = 0) {
+        const replyContent = document.getElementById(`replyContent-${postId}-${parentReplyId}`).value;
+
+        if (!replyContent) {
+            alert('Please write a reply before submitting.');
+            return;
+        }
+
+        fetch(`/reply/${postId}`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ content: replyContent, parent_reply_id: parentReplyId })
+        })
+        .then(response => response.json())
+        .then(data => {
+            // Append the new reply under the original reply
+            const timestamp = new Date().toLocaleString(); 
+            const repliesSection = parentReplyId === 0? document.getElementById(`replies-${postId}`) : document.getElementById(`reply-${parentReplyId}`);
+            const newReplyHtml = `
+                <div id="reply-${data.reply_id}" class="card mt-2">
+                <div class="card-body">
+                    <a class="text-muted text-left" href="./prof/${data.user_id}">${data.user_name} replied to: ${data.author}</a>
+                    <p class="card-text">${data.content}</p>
+                    <p class="text-muted text-right">${timestamp}</p>
+                    <button class="btn btn-secondary" onclick="toggleReplyForm('${postId}', '${data.reply_id}')">Reply</button>
+                </div>
+                </div>
+            `;
+            repliesSection.insertAdjacentHTML('beforeend', newReplyHtml);
+
+            // Clear the reply content and hide the reply form
+            
+            document.getElementById(`replyContent-${postId}-${parentReplyId}`).value = '';
+            if (parentReplyId === 0) {
+                document.getElementById(`reply-form-post-${postId}`).style.display = 'none';
+            } else {
+                document.getElementById(`reply-form-${parentReplyId}`).style.display = 'none';
+            }
+        })
+        .catch(error => {
+            console.error('Error submitting reply:', error);
+        });
+    }
+
+    function loadReplies(postId, parentReplyId = 0, offset = 0) {
+        const url = `/load_replies/${postId}?offset=${offset}&parent_reply_id=${parentReplyId}`;
+
+        fetch(url)
+            .then(response => response.text())
+            .then(html => {
+                // Get the replies section where replies will be loaded
+                const repliesSection = document.getElementById(`replies-${parentReplyId || postId}`);
+
+                // Insert the server-rendered HTML
+                repliesSection.insertAdjacentHTML('beforeend', html);
+
+                // If no new replies are loaded, disable the "Load More Replies" button
+                if (html.trim().length === 0) {
+                    const loadMoreButton = document.getElementById(`load-more-replies-${parentReplyId || postId}`);
+                    if (loadMoreButton) {
+                        loadMoreButton.disabled = true;
+                        loadMoreButton.textContent = 'No More Replies';
+                    }
+                } else {
+                    // If more replies are loaded, increment the offset for future loads
+                    const loadMoreButton = document.getElementById(`load-more-replies-${parentReplyId || postId}`);
+                    if (loadMoreButton) {
+                        loadMoreButton.setAttribute('onclick', `loadReplies('${postId}', ${parentReplyId}, ${offset + 5})`);
+                    }
+                }
+            })
+            .catch(error => {
+                console.error('Error loading replies:', error);
+            });
+    }
     </script>
 </body>
 </html>
