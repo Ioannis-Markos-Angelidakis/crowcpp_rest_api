@@ -1335,5 +1335,5 @@ CROW_ROUTE(app, "/reply/<int>").methods(crow::HTTPMethod::Post)([&db](const crow
         return page.render(json_data);
     });
 	
-    app.bindaddr("ENTER HOSTING IPV4").port(18080).run();
+    std::future<void> _a = app.bindaddr("ENTER HOSTING IPV4 IP").port(18080).multithreaded().run_async();
 }
