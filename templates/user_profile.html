@@ -40,7 +40,7 @@
                     <td>{{name}}</td>
                     <td>
                         {{#profile_picture}}
-                        <img src="{{profile_picture}}" alt="Profile Picture" style="max-width: 100px; border-radius: 50%; height: 80px; width: 31%">
+                        <img src="/.{{profile_picture}}" alt="Profile Picture" style="max-width: 100px; border-radius: 50%; height: 80px; width: 31%">
                         {{/profile_picture}}
                     </td>
                 </tr>
@@ -156,34 +156,136 @@
             element.innerHTML = `${originalContent}`;
         }
 
-        function save_post(id, originalContent) {
-            const newContent = document.getElementById(`editContent-${id}`).value;
+        function edit_reply(replyId) {
+            const element = document.getElementById(`reply_id_${replyId}`);
+            const originalContent = element.innerText;
+            document.getElementById(`edit_reply_${replyId}`).style = "display:none;"
+            element.innerHTML = `
+                <textarea class="form-control" id="editContent-${replyId}" rows="4">${originalContent}</textarea>
+                <button class="btn btn-success btn-sm mt-2" onclick="save_reply('${replyId}', '${originalContent}')">Save</button>
+                <button class="btn btn-secondary btn-sm mt-2 ml-2" onclick="cancel_reply_edit('${replyId}', '${originalContent}')">Cancel</button>
+            `;
+        }
 
-            const xhr = new XMLHttpRequest();
-            xhr.open("POST", `/edit_post/${id}`, true);
-            xhr.setRequestHeader("Content-Type", "application/json");
+        function cancel_reply_edit(replyId, originalContent) {
+            const element = document.getElementById(`reply_id_${replyId}`);
+            document.getElementById(`edit_reply_${replyId}`).style = "display:blobk;"
+            element.innerHTML = `${originalContent}`;
+        }
 
-            xhr.onreadystatechange = function () {
-                if (xhr.readyState === 4) {
-                    if (xhr.status === 200) {
-                        // Parse the JSON response (if any)
-                        const response = xhr.responseText;
+    function save_reply(replyId, originalContent) {
 
-                        // Replace the textarea with the new content and re-add the edit button
-                        const element = document.getElementById(id);
-                        document.getElementById(`edit-${id}`).style = "display:inline-block;"
-                        element.innerHTML = `${newContent}`;
+        const newContent = document.getElementById(`editContent-${replyId}`).value;
+        fetch(`/edit_reply/${replyId}`, {
+            method: 'PUT',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ content: newContent })
+        })
+        .then(response => {
+            if (!response.ok) {
+                return response.text().then(text => {
+                    throw new Error(text);
+                });
+            }
+            return response.text();
+        })
+        .then(data => {
+            // Replace the textarea with the new content and re-add the edit button
+            const element = document.getElementById(`reply_id_${replyId}`);
+            document.getElementById(`edit_reply_${replyId}`).style = "display:inline-block;";
+            element.innerHTML = `${newContent}`;
+        })
+        .catch(error => {
+            console.error('Error:', error);
+            alert('Error updating the post: ' + error.message);
+        });
+    }
+
+    // Select the container that holds both posts and replies
+    const containerElement = document.querySelector('#posts, [name="replies"]');
+
+    if (containerElement) {
+        containerElement.addEventListener('click', function(e) {
+            // Handle clicks on like buttons for posts
+            if (e.target.classList.contains('like-button')) {
+                const likeButton = e.target;
+                const postId = likeButton.getAttribute('data-post-id');
+                const userId = likeButton.getAttribute('data-user-id');
+
+                fetch('/like', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ post_id: postId, user_id: userId })
+                })
+                .then(response => response.text())
+                .then(message => {
+                    const postElement = likeButton.closest('.d-flex');
+                    const likeCountElement = postElement.querySelector('.badge-info');
+                    const currentLikes = parseInt(likeCountElement.textContent.split(' ')[0]);
+
+                    if (message === 'Like added successfully') {
+                        likeCountElement.textContent = `${currentLikes + 1} Likes`;
+                    } else if (message === 'Like removed successfully') {
+                        likeCountElement.textContent = `${currentLikes - 1} Likes`;
                     } else {
-                        console.error('Error:', xhr.responseText);
-                        alert('Error updating the post: ' + xhr.responseText);
-                        cancel_edit(id, originalContent); // Revert to the original content in case of error
+                        console.error('Error:', message);
                     }
-                }
-            };
+                })
+                .catch(error => console.error('Error:', error));
 
-            // Send the JSON data
-            const jsonData = JSON.stringify({ content: newContent });
-            xhr.send(jsonData);
+            // Handle clicks on like buttons for replies
+            } else if (e.target.classList.contains('reply-like')) {
+                const likeButton = e.target;
+                const replyId = likeButton.getAttribute('reply-id'); // Use reply-id attribute
+
+                fetch(`/like_reply/${replyId}`, { // Use replyId in the URL
+                    method: 'POST'
+                })
+                .then(response => response.text())
+                .then(message => {
+                    const postElement = likeButton.closest('.d-flex');
+                    const likeCountElement = postElement.querySelector('.badge-info');
+                    const currentLikes = parseInt(likeCountElement.textContent.split(' ')[0]);
+
+                    if (message === 'Like added successfully') {
+                        likeCountElement.textContent = `${currentLikes + 1} Likes`;
+                    } else if (message === 'Like removed successfully') {
+                        likeCountElement.textContent = `${currentLikes - 1} Likes`;
+                    } else {
+                        console.error('Error:', message);
+                    }
+                })
+                .catch(error => console.error('Error:', error));
+            }
+        });
+    }
+
+    function delete_reply(replyId) {
+            if (!confirm('Are you sure you want to delete this reply?')) {
+                return;
+            }
+
+            fetch(`/delete_reply/${replyId}`, {
+                method: 'DELETE'
+            })
+            .then(response => {
+                if (response.ok) {
+                    const postElement = document.getElementById(`reply-${replyId}`);
+                    postElement.remove();
+                } else {
+                    return response.text().then(text => {
+                        throw new Error(text);
+                    });
+                }
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                alert('Error deleting that reply: ' + error.message);
+            });
         }
 
         function delete_post(postId) {
@@ -287,11 +389,17 @@
             const repliesSection = parentReplyId === 0? document.getElementById(`replies-${postId}`) : document.getElementById(`reply-${parentReplyId}`);
             const newReplyHtml = `
                 <div id="reply-${data.reply_id}" class="card mt-2">
+                <div class="d-flex justify-content-between align-items-center">
                 <div class="card-body">
                     <a class="text-muted text-left" href="./prof/${data.user_id}">${data.user_name} replied to: ${data.author}</a>
-                    <p class="card-text">${data.content}</p>
+                    <p class="card-text" id="reply_id_${data.reply_id}">${data.content}</p>
                     <p class="text-muted text-right">${timestamp}</p>
+                    <button class="btn btn-primary reply-like" reply-id="${data.reply_id}">Like</button>
                     <button class="btn btn-secondary" onclick="toggleReplyForm('${postId}', '${data.reply_id}')">Reply</button>
+                    <button id="edit_reply_${data.reply_id}" class="btn btn-secondary" onclick="edit_reply('${data.reply_id}')">Edit</button>
+                    <button id="delete_reply_${data.reply_id}" class="btn btn-danger" onclick="delete_reply('${data.reply_id}')">Delete</button>
+                </div>
+                <span class="badge badge-info">0 Likes</span>
                 </div>
                 </div>
             `;
