@@ -162,20 +162,29 @@
         }
 
         function deleteUser(id) {
-            fetch(`/delete_user?id=${id}`)
-                .then(response => response.text().then(text => ({ ok: response.ok, text })))
-                .then(({ ok, text }) => {
-                    if (ok) {
-                        messageDiv.innerText = 'User deleted successfully.';
-                        setTimeout(() => location.reload(), 1000);
-                    } else {
-                        messageDiv.innerText = `${text}`;
-                    }
-                })
-                .catch(error => {
-                    messageDiv.innerText = `${error.message}`;
-                });
+        // Prompt user for password
+        const password = prompt("Please enter your password to confirm:");
+
+        if (!password) {
+            alert("Password is required to delete the user.");
+            return;
         }
+
+        // Send the password along with the request
+        fetch(`/delete_user/${password}?id=${id}&password=${encodeURIComponent(password)}`)
+            .then(response => response.text().then(text => ({ ok: response.ok, text })))
+            .then(({ ok, text }) => {
+                if (ok) {
+                    messageDiv.innerText = 'User deleted successfully.';
+                    setTimeout(() => location.reload(), 1000);
+                } else {
+                    messageDiv.innerText = `${text}`;
+                }
+            })
+            .catch(error => {
+                messageDiv.innerText = `${error.message}`;
+            });
+    }
 
         function removeProfilePicture(id) {
             document.getElementById(`edit-profile-picture-${id}`).value = '';
