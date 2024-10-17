@@ -10,6 +10,7 @@
 namespace fs = std::filesystem;
 
 static const std::string IP = "";
+static const std::string PORT = "";
 static const std::string SMPT_EMAIL = "";
 static const std::string SMPT_URL = "";
 static const std::string SMPT_AND_PASS = "";
@@ -317,7 +318,7 @@ void display_image(crow::response& res, const std::string& filepath) {
 }
 
 int32_t send_verification_email(const std::string& email_to, const std::string& key) {
-    std::string link = "http://" + IP + "/verify/" + email_to + "/" + key;
+    std::string link = "http://" + IP + ":" + PORT + "/verify/" + email_to + "/" + key;
 
     std::ostringstream email_content;
     email_content << "from: " << SMPT_EMAIL << "\n"
@@ -326,7 +327,6 @@ int32_t send_verification_email(const std::string& email_to, const std::string& 
                   << "Content-Type: text/html; charset=UTF-8\n"
                   << "<html>\n"
                   << "<body>\n"
-                  << "<h1>" << link << "</h1>\n"
                   << "<h2><a href=\"" << link << "\">Click here to verify your email</a></h2>\n"
                   << "</body>\n"
                   << "</html>";
@@ -337,7 +337,7 @@ int32_t send_verification_email(const std::string& email_to, const std::string& 
                           R"(--upload-file - )"  // Upload content from stdin
                           R"(--user ")" + SMPT_AND_PASS + R"(" )";
 
-    std::unique_ptr<FILE, decltype(&pclose)> pipe(popen(command.c_str(), "w"), pclose);
+    std::unique_ptr<FILE, decltype(&pclose)> pipe(popen(command.data(), "w"), pclose);
     if (!pipe) {
         throw std::runtime_error("Failed to open pipe to curl.");
     }
@@ -353,7 +353,7 @@ int32_t send_verification_email(const std::string& email_to, const std::string& 
 }
 
 int32_t send_reset_email(const std::string& email_to, const std::string& key) {
-    std::string link = "http://" + IP + "/reset_password/" + email_to + "/" + key;
+    std::string link = "http://" + IP + ":" + PORT + "/reset_password/" + email_to + "/" + key;
     
     std::ostringstream email_content;
     email_content << "from: " << SMPT_EMAIL << "\n"
@@ -373,7 +373,7 @@ int32_t send_reset_email(const std::string& email_to, const std::string& key) {
                           R"(--upload-file - )"  // Upload content from stdin
                           R"(--user ")" + SMPT_AND_PASS + R"(" )";
 
-    std::unique_ptr<FILE, decltype(&pclose)> pipe(popen(command.c_str(), "w"), pclose);
+    std::unique_ptr<FILE, decltype(&pclose)> pipe(popen(command.data(), "w"), pclose);
     if (!pipe) {
         throw std::runtime_error("Failed to open pipe to curl.");
     }
@@ -1384,6 +1384,9 @@ int32_t main() {
                     }
 
                     std::string filename = params_it->second;
+                    if (!fs::exists("./profile_pictures/" + std::to_string(user.id) + "/")) {
+                        fs::create_directory("./profile_pictures/" + std::to_string(user.id) + "/");
+                    }
                     profile_picture_path = "./profile_pictures/" + std::to_string(user.id) + "/" + filename;
 
                     if (part_value.body.starts_with(image.jpg) || part_value.body.starts_with(image.png) || part_value.body.starts_with(image.gif) || part_value.body.starts_with(image.bmp)) {
@@ -1424,34 +1427,53 @@ int32_t main() {
         return crow::response(400, user.error_message);
     });
 
-    CROW_ROUTE(app, "/delete_user") ([&db](const crow::request& request) {
+    CROW_ROUTE(app, "/delete_user/<string>")([&db](const crow::request& request, const std::string& password) {
         current_user user = is_authorized(request, db);
-        std::string profile_picture_path;
 
         if (user.logged_in) {
-            db << "SELECT profile_picture FROM user WHERE _id = ?;" << user.id
-            >> [&](const std::string& profile_picture) {
-                profile_picture_path = profile_picture;
+            std::string db_password;
+
+            db << "SELECT password FROM user WHERE _id = ?;"
+            << user.id
+            >> [&](const std::string& pass) {
+                db_password = decrypt(pass);
             };
 
-            db << "DELETE FROM user WHERE _id = ?;" << user.id;
-            
-            db << "DELETE FROM sessions WHERE user_id = ?;"
-               << user.id;
-
-            std::error_code error;
-            if (!profile_picture_path.empty() && fs::exists(profile_picture_path)) {
-                fs::remove(profile_picture_path, error);
-            } 
-            
-            if (error) {
-                return crow::response(500, "Error deleting profile picture");
+            if (db_password != password) {
+                return crow::response(400, "Wrong password");
             }
 
-            return crow::response(200, "User and profile picture deleted successfully");
+            db << "DELETE FROM posts WHERE user_id = ?;" << user.id;
+
+            db << R"(
+                DELETE FROM replies 
+                WHERE user_id = ? OR parent_reply_id IN (
+                    SELECT _id FROM replies WHERE user_id = ?
+                );
+            )" << user.id << user.id;
+
+            db << "DELETE FROM post_likes WHERE user_id = ?;" << user.id;
+
+            db << "DELETE FROM reply_likes WHERE user_id = ?;" << user.id;
+
+            db << "DELETE FROM sessions WHERE user_id = ?;" << user.id;
+
+            db << "DELETE FROM user WHERE _id = ?;" << user.id;
+
+            std::error_code error;
+            if (fs::exists("./profile_pictures/" + std::to_string(user.id) + "/", error)) {
+                fs::remove_all("./profile_pictures/" + std::to_string(user.id) + "/", error);
+            }
+
+            if (error) {
+                return crow::response(500, "Error deleting user directory");
+            }
+
+            return crow::response(200, "User and all related data deleted successfully");
         }
         return crow::response(400, user.error_message);
     });
+
 
     CROW_ROUTE(app, "/logout") ([&db](const crow::request& request) {
         current_user user = is_authorized(request, db);
@@ -1478,6 +1500,6 @@ int32_t main() {
         return page.render(json_data);
     });
 
-    std::future<void> _a = app.bindaddr(IP).port(18080).multithreaded().run_async();
+    std::future<void> _a = app.bindaddr(IP).port(std::stoi(PORT)).multithreaded().run_async();
 }
 //clang++ -Wall -Wextra -fsanitize=address account.cpp -o account -std=c++23 -lwsock32 -lws2_32 -lsqlite3
