@@ -15,28 +15,12 @@ static const std::string SMPT_EMAIL = "";
 static const std::string SMPT_URL = "";
 static const std::string SMPT_AND_PASS = "";
 
-struct image_format {
+static struct image_format {
     std::string_view jpg = "\xFF\xD8\xFF";
     std::string_view png = "\x89\x50\x4E\x47\x0D\x0A\x1A\x0A";
     std::string_view gif = "\x47\x49\x46\x38";
     std::string_view bmp = "\x42\x4D";
 }image;
-
-union char_range {
-    static const std::string links;
-    static const std::string any;
-}range;
-
-const std::string char_range::links = 
-    "abcdefghijklmnopqrstuvwxyz"
-    "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
-    "0123456789";
-
-const std::string char_range::any = 
-    "abcdefghijklmnopqrstuvwxyz"
-    "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
-    "0123456789"
-    "!@#$%^&*()-_=+[]{}|:,.<>?/";
 
 struct current_user {
     bool logged_in;
@@ -46,6 +30,54 @@ struct current_user {
     bool verified;
     std::string error_message;
 };
+
+std::string escape_string_decode(const std::string& str) {
+    std::string decoded_string;
+    
+    for (size_t i = 0; i < str.length(); ++i) {
+        char c = str.at(i);
+
+        switch (c) {
+            case '%': {
+                if (i + 2 < str.length()) { 
+                    std::istringstream hex_stream(str.substr(i + 1, 2));
+                    int32_t hex_value;
+                    if (hex_stream >> std::hex >> hex_value) {
+                        decoded_string += static_cast<char>(hex_value);
+                        i += 2; 
+                    } else {
+                        decoded_string += c; 
+                    }
+                }
+                break;
+            }
+            case '+':
+                decoded_string += ' ';
+                break;
+            default:
+                decoded_string += c; 
+                break;
+        }
+    }
+
+    return decoded_string;
+}
+
+std::string escape_string_encode(const std::string& str) {
+    std::ostringstream encoded_string;
+
+    for (unsigned char c : str) {
+        if (isalnum(c) || c == '-' || c == '_' || c == '.' || c == '~') {
+            encoded_string << c;
+        } else if (c == ' ') {
+            encoded_string << '+';
+        } else {
+            encoded_string << '%' << std::uppercase << std::hex << std::setw(2) << std::setfill('0') << (int)c;
+        }
+    }
+
+    return encoded_string.str();
+}
 
 bool is_symbol(const uint32_t codepoint) {
     return
@@ -285,40 +317,27 @@ current_user is_authorized(const crow::request& request, sqlite::database& db) {
     return {true, user_id,  retrieved_session_token, retrieved_user_name, retrieved_verified, ""};
 }
 
-std::string session_token(const std::string& char_range, size_t size) {
-
+std::string session_token(size_t size) {
+    const std::string chars_range = 
+    "abcdefghijklmnopqrstuvwxyz"
+    "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+    "0123456789"
+    "!@#$%^&*()-_=+[]{}|:,.<>?/";
     std::random_device random_device;
     std::mt19937 generator(random_device());
-    std::uniform_int_distribution<> distribution(0, char_range.size() - 1);
+    std::uniform_int_distribution<> distribution(0, chars_range.size() - 1);
 
     std::string random_string;
 
     for (uint32_t i = 0; i < size; ++i) {
-        random_string += char_range[distribution(generator)];
+        random_string += chars_range[distribution(generator)];
     }
 
     return random_string;
 }
 
-void display_image(crow::response& res, const std::string& filepath) {
-    std::ifstream file(filepath, std::ifstream::in | std::ios::binary);
-
-    if (file) {
-        std::stringstream buffer;
-
-        buffer << file.rdbuf();
-        res.add_header("Content-Length", std::to_string(buffer.str().size()));
-        res.write(buffer.str());
-        res.end();
-    } else {
-        res.code = 404;
-        res.write("File not found");
-        res.end();
-    }
-}
-
 int32_t send_verification_email(const std::string& email_to, const std::string& key) {
-    std::string link = "http://" + IP + ":" + PORT + "/verify/" + email_to + "/" + key;
+    std::string link = "http://" + IP + ":" + PORT + "/verify/" + email_to + "/" + escape_string_encode(key);
 
     std::ostringstream email_content;
     email_content << "from: " << SMPT_EMAIL << "\n"
@@ -353,7 +372,7 @@ int32_t send_verification_email(const std::string& email_to, const std::string& 
 }
 
 int32_t send_reset_email(const std::string& email_to, const std::string& key) {
-    std::string link = "http://" + IP + ":" + PORT + "/reset_password/" + email_to + "/" + key;
+    std::string link = "http://" + IP + ":" + PORT + "/reset_password/" + email_to + "/" + escape_string_encode(key);
     
     std::ostringstream email_content;
     email_content << "from: " << SMPT_EMAIL << "\n"
@@ -463,11 +482,12 @@ int32_t main() {
     create_database(db);
 
     //email/token
-    CROW_ROUTE(app, "/reset_password/<string>/<string>")([&db](const crow::request& req, std::string email, std::string token) {
+    CROW_ROUTE(app, "/reset_password/<string>/<string>")([&db](std::string email, const std::string& token) {
+        email = escape_string_decode(email);
         uint32_t db_token = 0;
         db << "SELECT COUNT(*) FROM password_resets WHERE (email = ? AND token = ?);" 
-        << email << token 
-        >> db_token;
+           << email << token 
+           >> db_token; 
 
         crow::mustache::template_t page = crow::mustache::load("error.html");
         crow::json::wvalue json_data;
@@ -485,7 +505,9 @@ int32_t main() {
     });
 
     //email/token/new_password
-    CROW_ROUTE(app, "/reset_password/<string>/<string>/<string>").methods(crow::HTTPMethod::Post)([&db](const crow::request& req, const std::string& email, const std::string& token, std::string new_password) {
+    CROW_ROUTE(app, "/reset_password/<string>/<string>/<string>").methods(crow::HTTPMethod::Post)([&db](std::string email, const std::string& token, std::string new_password) {
+        email = escape_string_decode(email);
+        new_password = escape_string_decode(new_password);
         uint32_t db_token = 0;
         db << "SELECT COUNT(*) FROM password_resets WHERE (email = ? AND token = ?);" 
            << email << token 
@@ -499,7 +521,7 @@ int32_t main() {
             return crow::response(400, "ERROR: Password needs to be  >= 8 <= 25 chars with a symbol, number, capital letter");
         }
 
-        std::string key = session_token(range.any, 20);
+        std::string key = session_token(20);
         std::string password = encrypt(new_password, key);
         db << "UPDATE user SET password = ? WHERE email = ?;"
            << password << email;
@@ -512,20 +534,21 @@ int32_t main() {
         return response;
     });
 
-    CROW_ROUTE(app, "/forgot_password/<string>").methods(crow::HTTPMethod::Post)([&db](const crow::request& req, const std::string& email) {
+    CROW_ROUTE(app, "/forgot_password/<string>").methods(crow::HTTPMethod::Post)([&db](std::string email) {
+        email = escape_string_decode(email);
         uint32_t user_email = 0;
         db << "SELECT COUNT(*) FROM user WHERE email = ?;" 
-        << email 
-        >> user_email;
+           << email 
+           >> user_email;
 
         if (user_email <= 0) {
             return crow::response(400, "Email not found");
         }
 
-        std::string reset_token = session_token(range.links, 20);
+        std::string reset_token = session_token(20);
 
         db << "INSERT OR REPLACE INTO password_resets (email, token, expires_at) VALUES (?, ?, datetime('now', 'localtime'));"
-           << email << reset_token;
+           << email << escape_string_encode(reset_token);
 
         send_reset_email(email, reset_token);
 
@@ -908,8 +931,8 @@ int32_t main() {
         // Check if the post exists and if the user is the owner
         bool is_owner = false;
         db << "SELECT COUNT(*) FROM posts WHERE _id = ? AND user_id = ?;"
-        << post_id << user.id
-        >> [&is_owner](int32_t count) {
+           << post_id << user.id
+           >> [&is_owner](int32_t count) {
             is_owner = (count > 0);
         };
 
@@ -918,10 +941,10 @@ int32_t main() {
         }
 
         db << "DELETE FROM post_likes WHERE post_id = ?;"
-        << post_id;
+           << post_id;
 
         db << "DELETE FROM posts WHERE _id = ? AND user_id = ?;"
-        << post_id << user.id;
+           << post_id << user.id;
 
         return crow::response(200, "Post and associated likes deleted successfully");
     });
@@ -987,7 +1010,6 @@ int32_t main() {
             } 
         }
 
-        // Insert the reply into the replies table
         db << "INSERT INTO replies (post_id, user_id, content, parent_reply_id, author, timestamp) VALUES (?, ?, ?, ?, ?, datetime('now', 'localtime'));"
            << post_id << user.id << content << parent_reply_id << author;
 
@@ -1046,7 +1068,7 @@ int32_t main() {
             LIMIT 5 OFFSET ?;
             )"
             << post_id << parent_reply_id << parent_reply_id << offset
-            >> [&](const int32_t reply_id, const int32_t user_id, const std::string& content, const std::string& timestamp, const std::string time_edited, const std::string& user_name, const std::string& author, const int32_t post_id, const int32_t reply_like_count) {
+            >> [&](const uint32_t reply_id, const uint32_t user_id, const std::string& content, const std::string& timestamp, const std::string& time_edited, const std::string& user_name, const std::string& author, const uint32_t post_id, const uint32_t reply_like_count) {
                 crow::json::wvalue reply;
                 reply["reply_id"] = reply_id;
                 reply["post_id"] = post_id;
@@ -1070,9 +1092,32 @@ int32_t main() {
         return page.render(response);
     });
 
-    CROW_ROUTE(app, "/profile_pictures/<int>/<string>") ([](const crow::request& req, crow::response& res, const uint32_t user_id, std::string filename) {
-        std::string filepath = "./profile_pictures/" + std::to_string(user_id) + "/" + filename; 
-        display_image(res, filepath);
+    CROW_ROUTE(app, "/profile_pictures/<int>/<string>") ([](crow::response& res, const uint32_t user_id, std::string filename) {
+        filename = escape_string_decode(filename);
+        std::string filepath = "./profile_pictures/" + std::to_string(user_id) + "/" + filename;
+        std::ifstream file(filepath, std::ifstream::in | std::ios::binary);
+
+        if (file) {
+          std::ostringstream buffer;
+          buffer << file.rdbuf();
+
+          if (buffer.str().starts_with(image.jpg) ||
+              buffer.str().starts_with(image.png) ||
+              buffer.str().starts_with(image.gif) ||
+              buffer.str().starts_with(image.bmp)) {
+                res.set_static_file_info(filepath);
+                res.end();
+          } else {
+            res.code = 400;
+            res.write("Invalid image format");
+            res.end();
+          }
+        } else {
+          res.code = 400;
+          res.write("File doesn't exist");
+          res.end();
+        }
+
     });
 
     CROW_ROUTE(app, "/register").methods(crow::HTTPMethod::Post)([&db](const crow::request& request) {
@@ -1103,7 +1148,7 @@ int32_t main() {
                 return crow::response(400, "Password is EMPTY");
             } else if (part_name == "password") {
                     if (is_pass_ok(part_value.body) && (part_value.body.length() >= 8 && part_value.body.length() <= 25)) {
-                        std::string key = session_token(range.any, 20);
+                        std::string key = session_token(20);
                         password = encrypt(part_value.body, key);
                     } else {
                         return crow::response(400, "ERROR: Password needs to be at least 8 chars with a symbol, number, capital letter");
@@ -1111,9 +1156,9 @@ int32_t main() {
             }
         }
 
-        std::string verify_key = session_token(range.links, 20);
+        std::string verify_key = session_token(20);
         send_verification_email(email, verify_key);
-        std::string token = session_token(range.any, 20);
+        std::string token = session_token(20);
 
         db << "INSERT OR REPLACE INTO to_verify (email, key) VALUES (?, ?);"
            << email << verify_key;
@@ -1161,16 +1206,29 @@ int32_t main() {
                     return crow::response(400);
                 }
 
-                std::string_view filename = params_it->second;
+                std::string filename = params_it->second;
+                std::string img_type;
 
-                if (part_value.body.starts_with(image.jpg) || part_value.body.starts_with(image.png) || part_value.body.starts_with(image.gif) || part_value.body.starts_with(image.bmp)) {
+                if (part_value.body.starts_with(image.jpg)) {
+                  img_type = ".jpg";
+                } else if (part_value.body.starts_with(image.png)) {
+                  img_type = ".png";
+                } else if (part_value.body.starts_with(image.gif)) {
+                  img_type = ".gif";
+                } else if (part_value.body.starts_with(image.bmp)) {
+                  img_type = ".bmp";
+                }
+
+                if (!img_type.empty()) {
+                    filename += img_type;
                     std::ofstream out_file(upload_dir + std::string(filename), std::ofstream::out | std::ios::binary);
                     out_file.write(part_value.body.data(), part_value.body.length());
                     profile_picture_path = upload_dir + std::string(filename);
+
                     db << "UPDATE user SET profile_picture = ? WHERE _id = ?;"
-                       << profile_picture_path << user_id;
+                        << profile_picture_path << user_id;
                 } else {
-                    return crow::response(400, "UPLOAD FAILED: Not an image file");
+                  return crow::response(400, "UPLOAD FAILED: Not an image file");
                 }
             }
         }
@@ -1191,6 +1249,8 @@ int32_t main() {
             return response;
         }
 
+        email = escape_string_decode(email);
+        key = escape_string_decode(key);
         std::string db_email;
         std::string db_key;
         
@@ -1229,7 +1289,7 @@ int32_t main() {
             }
         }
 
-        std::string token = session_token(range.any, 20);
+        std::string token = session_token(20);
         int32_t user_id;
         bool id_exists = false;
 
@@ -1341,7 +1401,7 @@ int32_t main() {
                     if (found > 0 && old_email != new_email) {
                         return crow::response(400, "ERROR: Email already exists!");
                     } else if (old_email != new_email) {;
-                        std::string key = session_token(range.links, 20);
+                        std::string key = session_token(20);
                         send_verification_email(new_email, key);
 
                         db << "INSERT INTO to_verify (email, key) VALUES(?, ?);"
@@ -1356,7 +1416,7 @@ int32_t main() {
 
                 } else if (part_name == "password") {
                     if (is_pass_ok(part_value.body) && part_value.body.length() >= 8) {
-                        std::string key = session_token(range.any, 20);
+                        std::string key = session_token(20);
                         password = encrypt(part_value.body, key);
                     } else {
                         return crow::response(400, "ERROR: Password needs to be at least 8 chars with a symbol, number, capital letter");
@@ -1384,16 +1444,26 @@ int32_t main() {
                     }
 
                     std::string filename = params_it->second;
+
                     if (!fs::exists("./profile_pictures/" + std::to_string(user.id) + "/")) {
                         fs::create_directory("./profile_pictures/" + std::to_string(user.id) + "/");
                     }
-                    profile_picture_path = "./profile_pictures/" + std::to_string(user.id) + "/" + filename;
 
-                    if (part_value.body.starts_with(image.jpg) || part_value.body.starts_with(image.png) || part_value.body.starts_with(image.gif) || part_value.body.starts_with(image.bmp)) {
-                        std::ofstream out_file(profile_picture_path, std::ofstream::out | std::ios::binary);
-                        out_file.write(part_value.body.data(), part_value.body.length());
+                    if (part_value.body.starts_with(image.jpg)) {
+                      profile_picture_path = "./profile_pictures/" + std::to_string(user.id) + "/" + filename + ".jpg";
+                    } else if (part_value.body.starts_with(image.png)) {
+                      profile_picture_path = "./profile_pictures/" + std::to_string(user.id) + "/" + filename + ".png";
+                    } else if (part_value.body.starts_with(image.gif)) {
+                      profile_picture_path = "./profile_pictures/" + std::to_string(user.id) + "/" + filename + ".gif";
+                    } else if (part_value.body.starts_with(image.bmp)) {
+                      profile_picture_path = "./profile_pictures/" + std::to_string(user.id) + "/" + filename + ".bmp";
+                    }
+
+                    if (!profile_picture_path.empty()) {
+                      std::ofstream out_file(profile_picture_path, std::ofstream::out | std::ios::binary);
+                      out_file.write(part_value.body.data(), part_value.body.length());
                     } else {
-                        return crow::response(400, "UPLOAD FAILED: Not an image file");
+                      return crow::response(400, "UPLOAD FAILED: Not an image file");
                     }
                 }
             }
@@ -1427,11 +1497,12 @@ int32_t main() {
         return crow::response(400, user.error_message);
     });
 
-    CROW_ROUTE(app, "/delete_user/<string>")([&db](const crow::request& request, const std::string& password) {
+    CROW_ROUTE(app, "/delete_user/<string>")([&db](const crow::request& request, std::string password) {
         current_user user = is_authorized(request, db);
 
         if (user.logged_in) {
             std::string db_password;
+            password = escape_string_decode(password);
 
             db << "SELECT password FROM user WHERE _id = ?;"
             << user.id
@@ -1502,4 +1573,3 @@ int32_t main() {
 
     std::future<void> _a = app.bindaddr(IP).port(std::stoi(PORT)).multithreaded().run_async();
 }
-//clang++ -Wall -Wextra -fsanitize=address account.cpp -o account -std=c++23 -lwsock32 -lws2_32 -lsqlite3
