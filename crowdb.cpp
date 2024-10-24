@@ -9,13 +9,13 @@
 
 namespace fs = std::filesystem;
 
-static const std::string IP = "";
-static const std::string PORT = "";
-static const std::string SMPT_EMAIL = "";
-static const std::string SMPT_URL = "";
-static const std::string SMPT_AND_PASS = "";
+const std::string IP = "";
+const std::string PORT = "";
+const std::string SMPT_EMAIL = "";
+const std::string SMPT_URL = "";
+const std::string SMPT_AND_PASS = "";
 
-static struct image_format {
+struct image_format {
     std::string_view jpg = "\xFF\xD8\xFF";
     std::string_view png = "\x89\x50\x4E\x47\x0D\x0A\x1A\x0A";
     std::string_view gif = "\x47\x49\x46\x38";
@@ -522,7 +522,9 @@ int32_t main() {
         }
 
         std::string key = session_token(20);
-        std::string password = encrypt(new_password, key);
+        std::string sanitized_password;
+        std::ranges::for_each(new_password, [&sanitized_password](const char ch){ ((ch >= 0 && ch <= 31) || ch == 127)? "" :  sanitized_password += ch ; });
+        std::string password = encrypt(sanitized_password, key);
         db << "UPDATE user SET password = ? WHERE email = ?;"
            << password << email;
 
@@ -1092,9 +1094,9 @@ int32_t main() {
         return page.render(response);
     });
 
-    CROW_ROUTE(app, "/profile_pictures/<int>/<string>") ([](crow::response& res, const uint32_t user_id, std::string filename) {
-        filename = escape_string_decode(filename);
-        std::string filepath = "./profile_pictures/" + std::to_string(user_id) + "/" + filename;
+    //id/filename/
+    CROW_ROUTE(app, "/user_data/<int>/prof_pic/<string>") ([](crow::response& res, const uint32_t& user_id, const std::string& filename) {
+        fs::path filepath = fs::path("user_data") / fs::path(std::to_string(user_id)) / fs::path("prof_pic") / escape_string_decode(filename);
         std::ifstream file(filepath, std::ifstream::in | std::ios::binary);
 
         if (file) {
@@ -1105,7 +1107,7 @@ int32_t main() {
               buffer.str().starts_with(image.png) ||
               buffer.str().starts_with(image.gif) ||
               buffer.str().starts_with(image.bmp)) {
-                res.set_static_file_info(filepath);
+                res.set_static_file_info(filepath.string());
                 res.end();
           } else {
             res.code = 400;
@@ -1122,38 +1124,39 @@ int32_t main() {
 
     CROW_ROUTE(app, "/register").methods(crow::HTTPMethod::Post)([&db](const crow::request& request) {
         crow::multipart::message file_message(request);
-        std::string name;
-        std::string email;
-        std::string password;
+        std::string name = file_message.get_part_by_name("name").body;
+        std::string email = file_message.get_part_by_name("email").body;
+        std::string password = file_message.get_part_by_name("password").body;
 
-        for (const auto& [part_name, part_value] : file_message.part_map) {
-            if (part_name == "name" && part_value.body.empty()) {
-                return crow::response(400, "Name is EMPTY");
-            } else if (part_name == "name") {
-                name = part_value.body;
-            } else if (part_name == "email" && part_value.body.empty()) {
-                return crow::response(400, "Email is EMPTY");
-            } else if (part_name == "email") {
-                std::string db_email;
-                email = part_value.body;
+        if (name.empty()) {
+            return crow::response(400, "Name is EMPTY");
+        }
 
-                db << "SELECT email FROM user WHERE email = ? AND verified = true;"
-                   << email
-                   >> [&db_email](const std::string _email){ db_email = _email; };
+        if (email.empty()) {
+            return crow::response(400, "Email is EMPTY");
+        } else {
+          std::string db_email;
 
-                if (!db_email.empty()) {
-                    return crow::response(400, "Email already exists");
-                }
-            } else if (part_name == "password" && part_value.body.empty()) {
-                return crow::response(400, "Password is EMPTY");
-            } else if (part_name == "password") {
-                    if (is_pass_ok(part_value.body) && (part_value.body.length() >= 8 && part_value.body.length() <= 25)) {
-                        std::string key = session_token(20);
-                        password = encrypt(part_value.body, key);
-                    } else {
-                        return crow::response(400, "ERROR: Password needs to be at least 8 chars with a symbol, number, capital letter");
-                    }
-            }
+          db << "SELECT email FROM user WHERE email = ? AND verified = true;"
+             << email >>
+              [&db_email](const std::string _email) { db_email = _email; };
+
+          if (!db_email.empty()) {
+            return crow::response(400, "Email already exists");
+          }
+        }
+
+        if (password.empty()) {
+            return crow::response(400, "Password is EMPTY");
+        } else {
+          if (is_pass_ok(password) && (password.length() >= 8 && password.length() <= 25)) {
+                std::string key = session_token(20);
+                std::string sanitized_password;
+                std::ranges::for_each(password, [&sanitized_password](const char ch){ ((ch >= 0 && ch <= 31) || ch == 127)? "" :  sanitized_password += ch ; });
+                password = encrypt(sanitized_password, key);
+          } else {
+                return crow::response(400, "ERROR: Password needs to be at least 8 chars with a symbol, number, capital letter");
+          }
         }
 
         std::string verify_key = session_token(20);
@@ -1167,20 +1170,20 @@ int32_t main() {
  
         try {
             db << "INSERT INTO user (name, email, password) VALUES (?, ?, ?);"
-            << name << email << password;
+               << name << email << password;
 
             user_id = db.last_insert_rowid();
-        } catch (const std::exception& e) {
+        } catch (const sqlite::sqlite_exception& error) {
             db << "SELECT _id FROM user WHERE email = ?;"
                << email 
-               >> [&user_id](int32_t id) { user_id = id; };
+               >> [&user_id](const int32_t id) { user_id = id; };
         }
 
-        db << "INSERT INTO sessions (user_id, session_token) VALUES (?, ?);" 
+        db << "INSERT OR REPLACE INTO sessions (user_id, session_token) VALUES (?, ?);" 
            << user_id << token;
 
-        std::string profile_picture_path;
-        std::string upload_dir = "./profile_pictures/" + std::to_string(user_id) + "/";   
+        fs::path profile_picture_path;
+        fs::path upload_dir = fs::path("user_data") / fs::path(std::to_string(user_id)) / fs::path("prof_pic");   
         std::error_code sys_error;
 
         if (fs::exists(upload_dir, sys_error)) {
@@ -1188,48 +1191,63 @@ int32_t main() {
             db << "UPDATE user SET profile_picture = NULL WHERE _id = ?;"
                << user_id;
             if (sys_error) {
-                return crow::response(500, sys_error.message());
+                return crow::response(500, "Error removing user directory");
             }
-        } else {
-          fs::create_directories(upload_dir);
+        } 
+
+        fs::create_directories(upload_dir, sys_error);
+        if (sys_error) {
+          return crow::response(500, "Error creating user directory");
         }
 
-        for (const auto& [part_name, part_value] : file_message.part_map) {
-            if (part_name == "file") {
-                auto headers_it = part_value.headers.find("Content-Disposition");
-                if (headers_it == part_value.headers.end()) {
-                    return crow::response(400, "UPLOAD FAILED");
-                }
+        std::string prof_pic = file_message.get_part_by_name("file").body;
 
-                auto params_it = headers_it->second.params.find("filename");
-                if (params_it == headers_it->second.params.end()) {
-                    return crow::response(400);
-                }
+        if (!prof_pic.empty()) {
+            const crow::multipart::part& part_value = file_message.get_part_by_name("file");
+            if (part_value.body.empty()) {
+                return crow::response(400, "No file part found");
+            }
+            
+            const crow::multipart::header& header = part_value.get_header_object("Content-Disposition");
+            if (header.value.empty()) {
+                return crow::response(400, "UPLOAD FAILED");
+            }
 
-                std::string filename = params_it->second;
-                std::string img_type;
+            std::string prof_name = header.params.at("filename");
 
-                if (part_value.body.starts_with(image.jpg)) {
-                  img_type = ".jpg";
-                } else if (part_value.body.starts_with(image.png)) {
-                  img_type = ".png";
-                } else if (part_value.body.starts_with(image.gif)) {
-                  img_type = ".gif";
-                } else if (part_value.body.starts_with(image.bmp)) {
-                  img_type = ".bmp";
-                }
+            if (prof_name.empty()) {
+                return crow::response(400, "Missing filename");
+            }
 
-                if (!img_type.empty()) {
-                    filename += img_type;
-                    std::ofstream out_file(upload_dir + std::string(filename), std::ofstream::out | std::ios::binary);
-                    out_file.write(part_value.body.data(), part_value.body.length());
-                    profile_picture_path = upload_dir + std::string(filename);
+            bool starts_img = false;
 
-                    db << "UPDATE user SET profile_picture = ? WHERE _id = ?;"
-                        << profile_picture_path << user_id;
-                } else {
-                  return crow::response(400, "UPLOAD FAILED: Not an image file");
-                }
+            if (prof_pic.starts_with(image.jpg)) {
+                starts_img = true;
+                if (!prof_name.ends_with(".jpg"))
+                    prof_name += ".jpg";
+            } else if (prof_pic.starts_with(image.png)) {
+                    starts_img = true;
+                if (!prof_name.ends_with(".png"))
+                    prof_name += ".png";
+            } else if (prof_pic.starts_with(image.gif)) {
+                    starts_img = true;
+                if (!prof_name.ends_with(".gif"))
+                    prof_name += ".gif";
+            } else if (prof_pic.starts_with(image.bmp)) {
+                    starts_img = true;
+                if (!prof_name.ends_with(".bmp"))
+                    prof_name += ".bmp";
+            }
+
+            if (starts_img) {
+                std::ofstream out_file(upload_dir / prof_name, std::ofstream::out | std::ios::binary);
+                out_file.write(prof_pic.data(), prof_pic.length());
+                profile_picture_path = upload_dir / prof_name;
+
+                db << "UPDATE user SET profile_picture = ? WHERE _id = ?;"
+                   << profile_picture_path.string() << user_id;
+            } else {
+                return crow::response(400, "UPLOAD FAILED: Not an image file");
             }
         }
 
@@ -1282,10 +1300,12 @@ int32_t main() {
                 return crow::response(400, "Email is EMPTY");
             } else if (part_name == "email") {
                 email = part_value.body;
-            } else if (part_name == "password" &&part_value.body.empty()) {
+            } else if (part_name == "password" && part_value.body.empty()) {
                 return crow::response(400, "Password is EMPTY");
             } else if (part_name == "password") {
-                password = part_value.body;
+                std::string sanitized_password;
+                std::ranges::for_each(part_value.body, [&sanitized_password](const char ch){ ((ch >= 0 && ch <= 31) || ch == 127)? "" :  sanitized_password += ch ; });
+                password = sanitized_password;
             }
         }
 
@@ -1377,123 +1397,140 @@ int32_t main() {
         current_user user = is_authorized(request, db);
 
         if (user.logged_in) {
-            std::string name;
-            std::string new_email;
-            std::string password;
-            std::string remove_profile_pic;
+            std::string name = file_message.get_part_by_name("name").body;
+            std::string new_email = file_message.get_part_by_name("email").body;
+            std::string password = file_message.get_part_by_name("password").body;
+            std::string remove_profile_pic = file_message.get_part_by_name("remove_picture").body;
 
-            for (const auto& [part_name, part_value] : file_message.part_map) {
-                if (part_name == "name") {
-                    name = part_value.body;
-                } else if (part_name == "email") {
-                    new_email = part_value.body;
-                    int32_t found = 0;
-                    std::string old_email;
+            bool found = false;
+            std::string old_email;
 
-                    db << "SELECT email FROM user WHERE _id = ?;"
-                       << user.id
-                       >> old_email;
+            db << "SELECT email FROM user WHERE _id = ?;" 
+               << user.id 
+               >> old_email;
 
-                    db << "SELECT COUNT(*) FROM user WHERE email = ?;"
-                       << new_email
-                       >> found;
+            db << "SELECT COUNT(*) FROM user WHERE email = ?;" 
+               << new_email 
+               >> found;
 
-                    if (found > 0 && old_email != new_email) {
-                        return crow::response(400, "ERROR: Email already exists!");
-                    } else if (old_email != new_email) {;
-                        std::string key = session_token(20);
-                        send_verification_email(new_email, key);
+            if (found && old_email != new_email) {
+                return crow::response(400, "ERROR: Email already exists!");
+            } else if (old_email != new_email) {
+                std::string key = session_token(20);
+                send_verification_email(new_email, key);
 
-                        db << "INSERT INTO to_verify (email, key) VALUES(?, ?);"
-                           << new_email << key;
+                db << "INSERT INTO to_verify (email, key) VALUES(?, ?);"
+                    << new_email << key;
 
-                        db << "UPDATE user SET verified = FALSE WHERE email = ?;"
-                           << old_email;
+                db << "UPDATE user SET verified = FALSE WHERE email = ?;"
+                    << old_email;
 
-                        db << "DELETE FROM sessions WHERE (user_id = ? AND session_token != ?);"
-                           << user.id << user.session_token;
-                    }
+                db << "DELETE FROM sessions WHERE (user_id = ? AND session_token "
+                        "!= ?);"
+                 << user.id << user.session_token;
+            }
 
-                } else if (part_name == "password") {
-                    if (is_pass_ok(part_value.body) && part_value.body.length() >= 8) {
-                        std::string key = session_token(20);
-                        password = encrypt(part_value.body, key);
-                    } else {
-                        return crow::response(400, "ERROR: Password needs to be at least 8 chars with a symbol, number, capital letter");
-                    }
-                } else if (part_name == "remove_picture") {
-                    remove_profile_pic = part_value.body;
-                }
+            if (is_pass_ok(password) && password.length() >= 8) {
+                std::string key = session_token(20);
+                std::string sanitized_password;
+                std::ranges::for_each(password, [&sanitized_password](const char ch) { 
+                    ((ch >= 0 && ch <= 31) || ch == 127) ? "" : sanitized_password += ch;
+                });
+                password = encrypt(sanitized_password, key);
+            } else {
+              return crow::response(400, "ERROR: Password needs to be at least 8 chars with a symbol, number, capital letter");
             }
 
             if (name.empty() || new_email.empty() || password.empty()) {
                 return crow::response(400, "ERROR: Empty field");
             }
 
-            std::string profile_picture_path;
-            for (const auto& [part_name, part_value] : file_message.part_map) {
-                if (part_name == "file") {
-                    auto headers_it = part_value.headers.find("Content-Disposition");
-                    if (headers_it == part_value.headers.end()) {
-                        return crow::response(400, "UPLOAD FAILED");
-                    }
+            fs::path profile_picture_path;
+            std::string prof_pic = file_message.get_part_by_name("file").body;
 
-                    auto params_it = headers_it->second.params.find("filename");
-                    if (params_it == headers_it->second.params.end()) {
-                        return crow::response(400);
-                    }
+            if (!prof_pic.empty()) {
+                const crow::multipart::part &part_value = file_message.get_part_by_name("file");
 
-                    std::string filename = params_it->second;
+                if (part_value.body.empty()) {
+                    return crow::response(400, "No file part found");
+                }
 
-                    if (!fs::exists("./profile_pictures/" + std::to_string(user.id) + "/")) {
-                        fs::create_directory("./profile_pictures/" + std::to_string(user.id) + "/");
-                    }
+                const crow::multipart::header &header = part_value.get_header_object("Content-Disposition");
+                if (header.value.empty()) {
+                    return crow::response(400, "UPLOAD FAILED");
+                }
 
-                    if (part_value.body.starts_with(image.jpg)) {
-                      profile_picture_path = "./profile_pictures/" + std::to_string(user.id) + "/" + filename + ".jpg";
-                    } else if (part_value.body.starts_with(image.png)) {
-                      profile_picture_path = "./profile_pictures/" + std::to_string(user.id) + "/" + filename + ".png";
-                    } else if (part_value.body.starts_with(image.gif)) {
-                      profile_picture_path = "./profile_pictures/" + std::to_string(user.id) + "/" + filename + ".gif";
-                    } else if (part_value.body.starts_with(image.bmp)) {
-                      profile_picture_path = "./profile_pictures/" + std::to_string(user.id) + "/" + filename + ".bmp";
-                    }
+                std::string prof_name = header.params.at("filename");
 
-                    if (!profile_picture_path.empty()) {
-                      std::ofstream out_file(profile_picture_path, std::ofstream::out | std::ios::binary);
-                      out_file.write(part_value.body.data(), part_value.body.length());
-                    } else {
-                      return crow::response(400, "UPLOAD FAILED: Not an image file");
-                    }
+                if (prof_name.empty()) {
+                    return crow::response(400, "Missing filename");
+                }
+
+                fs::path upload_dir = fs::path("user_data") / fs::path(std::to_string(user.id)) / fs::path("prof_pic");
+                std::error_code error;
+
+                if (!fs::exists(upload_dir, error)) {
+                    fs::create_directories(upload_dir, error);
+                }
+
+                if (error) {
+                    return crow::response(500, "Error creating user directory");
+                }
+
+                bool starts_img = false;
+
+                if (prof_pic.starts_with(image.jpg)) {
+                    starts_img = true;
+                    if (!prof_name.ends_with(".jpg"))
+                    prof_name += ".jpg";
+                } else if (prof_pic.starts_with(image.png)) {
+                    starts_img = true;
+                    if (!prof_name.ends_with(".png"))
+                    prof_name += ".png";
+                } else if (prof_pic.starts_with(image.gif)) {
+                    starts_img = true;
+                    if (!prof_name.ends_with(".gif"))
+                    prof_name += ".gif";
+                } else if (prof_pic.starts_with(image.bmp)) {
+                    starts_img = true;
+                    if (!prof_name.ends_with(".bmp"))
+                    prof_name += ".bmp";
+                }
+                
+                if (starts_img) {
+                    std::ofstream out_file(upload_dir / prof_name, std::ofstream::out | std::ios::binary);
+                    out_file.write(prof_pic.data(), prof_pic.length());
+                    profile_picture_path = upload_dir / prof_name;
+                } else {
+                    return crow::response(400, "UPLOAD FAILED: Not an image file");
                 }
             }
 
             if (!profile_picture_path.empty() || !remove_profile_pic.empty()) {
-                std::string profile_picture_delete;
+                fs::path profile_picture_delete;
 
-                db << "SELECT profile_picture FROM user WHERE _id = ?;" << user.id
-                   >> [&profile_picture_delete](const std::string& profile_picture) {
-                       profile_picture_delete = profile_picture;
-                };
+                db << "SELECT profile_picture FROM user WHERE _id = ?;"
+                    << user.id 
+                    >> [&profile_picture_delete](const std::string &profile_picture) { profile_picture_delete = fs::path(profile_picture); };
 
                 std::error_code error;
                 if ((!profile_picture_path.empty() || !remove_profile_pic.empty()) && fs::exists(profile_picture_delete) && profile_picture_delete != profile_picture_path) {
                     fs::remove(profile_picture_delete, error);
-                } 
-                
+                }
+
                 if (error) {
                     return crow::response(500, "Error deleting profile picture");
                 }
 
                 db << "UPDATE user SET name = ?, email = ?, password = ?, profile_picture = ? WHERE _id = ?;"
-                   << name << new_email << password << profile_picture_path << user.id;
-            } else {
+                    << name << new_email << password << profile_picture_path.string() << user.id;
+                } else {
                 db << "UPDATE user SET name = ?, email = ?, password = ? WHERE _id = ?;"
-                   << name << new_email << password << user.id;
-            }
-
-            return crow::response(200, "USER UPDATED SUCCESSFULLY");
+                    << name << new_email << password << user.id;
+                }
+                return crow::response(200, "USER UPDATED SUCCESSFULLY");
         }
+
         return crow::response(400, user.error_message);
     });
 
@@ -1532,8 +1569,8 @@ int32_t main() {
             db << "DELETE FROM user WHERE _id = ?;" << user.id;
 
             std::error_code error;
-            if (fs::exists("./profile_pictures/" + std::to_string(user.id) + "/", error)) {
-                fs::remove_all("./profile_pictures/" + std::to_string(user.id) + "/", error);
+            if (fs::exists(fs::path("user_data") / fs::path(std::to_string(user.id)), error)) {
+                fs::remove_all(fs::path("user_data") / fs::path(std::to_string(user.id)), error);
             }
 
             if (error) {
@@ -1573,3 +1610,4 @@ int32_t main() {
 
     std::future<void> _a = app.bindaddr(IP).port(std::stoi(PORT)).multithreaded().run_async();
 }
+//clang++ -Wall -Wextra -fsanitize=address account.cpp -o account -std=c++23 -lwsock32 -lws2_32 -lsqlite3
