@@ -19,6 +19,7 @@
   <li><code>/reset_password/&lt;string&gt;/&lt;string&gt;/&lt;string&gt;</code> - POST request for handling password reset with a new password.</li>
   <li><code>/forgot_password/&lt;string&gt;</code> - POST request for sending a password reset email.</li>
   <li><code>/like</code> - POST request for liking or unliking a post.</li>
+  <li><code>/like_reply/&lt;int&gt;</code> - POST request for liking or unliking a reply.</li>
   <li><code>/load_my_posts</code> - GET request to load the current user's posts.</li>
   <li><code>/load_users_posts/&lt;int&gt;</code> - GET request to load posts by a specific user.</li>
   <li><code>/home</code> - GET request to load the homepage with recent posts.</li>
@@ -27,7 +28,10 @@
   <li><code>/delete_post/&lt;int&gt;</code> - DELETE request for deleting a specific post.</li>
   <li><code>/reply/&lt;int&gt;</code> - POST request for replying to a specific post.</li>
   <li><code>/load_replies/&lt;int&gt;</code> - GET request to load replies for a specific post.</li>
-  <li><code>/profile_pictures/&lt;string&gt;</code> - GET request to display a profile picture.</li>
+  <li><code>/edit_reply/&lt;int&gt;</code> - PUT request for editing a specific reply.</li>
+  <li><code>/delete_reply/&lt;int&gt;</code> - DELETE request for deleting a specific reply.</li>
+  <li><code>/user_data/&lt;int&gt;/prof_pic/&lt;string&gt;</code> - GET request to display a user's profile picture.</li>
+  <li><code>/user_data/&lt;int&gt;/post_pic/&lt;string&gt;</code> - GET request to display a user's post picture.</li>
   <li><code>/register</code> - POST request to register a new user.</li>
   <li><code>/verify/&lt;string&gt;/&lt;string&gt;</code> - GET request for verifying the user's email.</li>
   <li><code>/login</code> - POST request for logging in a user.</li>
@@ -38,7 +42,6 @@
   <li><code>/logout</code> - GET request to log out the current user.</li>
   <li><code>/</code> - GET request to load the homepage or login page, depending on the user's session.</li>
 </ul>
-
 
 <h2>Technologies Used</h2>
 <ul>
