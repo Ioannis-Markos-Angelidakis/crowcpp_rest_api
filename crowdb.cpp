@@ -440,6 +440,7 @@ void create_database(sqlite::database& db) {
 		_id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
 		user_id INTEGER NOT NULL,
 		content TEXT NOT NULL,
+        post_pic_url TEXT,
 		timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
         time_edited DATETIME,
 		FOREIGN KEY(user_id) REFERENCES user(_id)
@@ -665,29 +666,42 @@ int32_t main() {
             SELECT 
                 posts._id AS post_id, 
                 posts.user_id AS author_id, 
-                posts.content, 
+                user.name AS author_name, 
+                posts.content,
+                posts.post_pic_url, 
                 posts.timestamp, 
+                posts.time_edited,
                 COUNT(post_likes.user_id) AS like_count
             FROM posts
             LEFT JOIN post_likes ON posts._id = post_likes.post_id
-            WHERE author_id = ?
+            LEFT JOIN user ON posts.user_id = user._id
+            WHERE user._id = ?
             GROUP BY posts._id
             ORDER BY posts.timestamp DESC 
             LIMIT 10 OFFSET ?;
-        )"
-        << user.id << page_num * 10
-        >> [&](const uint32_t post_id, const uint32_t user_id, const std::string& content, const std::string& timestamp, const uint32_t like_count) {
-            crow::json::wvalue post;
-            post["post_id"] = post_id;
-            post["user_id"] = user_id;
-            if (user_id == user.id) {
-                post["editable"] = "editable";
-            }
-            post["content"] = content;
-            post["timestamp"] = timestamp;
-            post["like_count"] = like_count;
-            posts.emplace_back(post);
-        };
+        )" << user.id << page_num * 10 
+           >>[&](const uint32_t post_id, uint32_t user_id,
+                    const std::string &author_name, const std::string &content,
+                    const std::string &post_pic_url, const std::string &timestamp,
+                    const std::string &time_edited, const uint32_t like_count) {
+                crow::json::wvalue post;
+                post["post_id"] = post_id;
+                post["user_id"] = user_id;
+                if (user_id == user.id) {
+                    post["editable"] = post_id;
+                }
+                post["author_name"] = author_name;
+                post["content"] = content;
+                if (!post_pic_url.empty()) {
+                    post["post_pic_url"] = post_pic_url;
+                }
+                post["timestamp"] = timestamp;
+                if (!time_edited.empty()) {
+                    post["edited"] = time_edited;
+                }
+                post["like_count"] = like_count;
+                posts.emplace_back(post);
+            };
 
         json_data["posts"] = std::move(posts);
         return page.render(json_data);
@@ -728,29 +742,42 @@ int32_t main() {
             SELECT 
                 posts._id AS post_id, 
                 posts.user_id AS author_id, 
-                posts.content, 
+                user.name AS author_name, 
+                posts.content,
+                posts.post_pic_url, 
                 posts.timestamp, 
+                posts.time_edited,
                 COUNT(post_likes.user_id) AS like_count
             FROM posts
             LEFT JOIN post_likes ON posts._id = post_likes.post_id
+            LEFT JOIN user ON posts.user_id = user._id
             WHERE author_id = ?
             GROUP BY posts._id
             ORDER BY posts.timestamp DESC 
             LIMIT 10 OFFSET ?;
-        )"
-        << user_id << page_num * 10
-        >> [&](const uint32_t post_id, const uint32_t user_id, const std::string& content, const std::string& timestamp, const uint32_t like_count) {
-            crow::json::wvalue post;
-            post["post_id"] = post_id;
-            post["user_id"] = user_id;
-            if (user_id == user.id) {
-                post["editable"] = "editable";
-            }
-            post["content"] = content;
-            post["timestamp"] = timestamp;
-            post["like_count"] = like_count;
-            posts.emplace_back(post);
-        };
+        )" << user_id << page_num * 10 
+           >> [&](const uint32_t post_id, uint32_t user_id,
+                    const std::string &author_name, const std::string &content,
+                    const std::string &post_pic_url, const std::string &timestamp,
+                    const std::string &time_edited, const uint32_t like_count) {
+                crow::json::wvalue post;
+                post["post_id"] = post_id;
+                post["user_id"] = user_id;
+                if (user_id == user.id) {
+                    post["editable"] = post_id;
+                }
+                post["author_name"] = author_name;
+                post["content"] = content;
+                if (!post_pic_url.empty()) {
+                    post["post_pic_url"] = post_pic_url;
+                }
+                post["timestamp"] = timestamp;
+                if (!time_edited.empty()) {
+                    post["edited"] = time_edited;
+                }
+                post["like_count"] = like_count;
+                posts.emplace_back(post);
+            };
 
         json_data["posts"] = std::move(posts);
         return page.render(json_data);
@@ -792,7 +819,8 @@ int32_t main() {
                 posts._id AS post_id, 
                 posts.user_id AS author_id, 
                 user.name AS author_name, 
-                posts.content, 
+                posts.content,
+                posts.post_pic_url, 
                 posts.timestamp, 
                 posts.time_edited,
                 COUNT(post_likes.user_id) AS like_count
@@ -802,89 +830,256 @@ int32_t main() {
             GROUP BY posts._id
             ORDER BY posts.timestamp DESC 
             LIMIT 10 OFFSET ?;
-        )"
-        << page_num * 10 
-        >> [&](const uint32_t post_id, uint32_t user_id, const std::string& author_name, const std::string& content, const std::string& timestamp, const std::string& time_edited, const uint32_t like_count) {
-            crow::json::wvalue post;
-            post["post_id"] = post_id;
-            post["user_id"] = user_id;
-            if (user_id == user.id) {
-                post["editable"] = post_id;
-            }
-            post["author_name"] = author_name;
-            post["content"] = content;
-            post["timestamp"] = timestamp;
-            if (!time_edited.empty()) {
-                post["edited"] = time_edited;
-            }
-            post["like_count"] = like_count;
-            posts.emplace_back(post);
-        };
-    
+        )" << page_num * 10 >>
+            [&](const uint32_t post_id, uint32_t user_id,
+                    const std::string &author_name, const std::string &content,
+                    const std::string &post_pic_url, const std::string &timestamp,
+                    const std::string &time_edited, const uint32_t like_count) {
+                crow::json::wvalue post;
+                post["post_id"] = post_id;
+                post["user_id"] = user_id;
+                if (user_id == user.id) {
+                    post["editable"] = post_id;
+                }
+                post["author_name"] = author_name;
+                post["content"] = content;
+                if (!post_pic_url.empty()) {
+                    post["post_pic_url"] = post_pic_url;
+                }
+                post["timestamp"] = timestamp;
+                if (!time_edited.empty()) {
+                    post["edited"] = time_edited;
+                }
+                post["like_count"] = like_count;
+                posts.emplace_back(post);
+            };
+
         json_data["posts"] = std::move(posts);
         return page.render(json_data);
     });
 
     CROW_ROUTE(app, "/submit_post").methods(crow::HTTPMethod::Post)([&db](const crow::request& request) {
-        std::string content = crow::json::load(request.body)["content"].s();
         current_user user = is_authorized(request, db);
 
         if (!user.logged_in || !user.verified) {
             return crow::response(400, "Not authorized");
         }
+        crow::multipart::message file_message(request);
+        fs::path profile_picture_path;
+        std::string content = file_message.get_part_by_name("content").body;
+        std::string post_pic = file_message.get_part_by_name("post_pic").body;
 
-        if (content.empty()) {
-            return crow::response(400, "Content cannot be empty");
+        if (!post_pic.empty()) {
+               const crow::multipart::part &part_value = file_message.get_part_by_name("post_pic");
+
+            if (part_value.body.empty()) {
+                return crow::response(400, "No file part found");
+             }
+
+            const crow::multipart::header &header = part_value.get_header_object("Content-Disposition");
+            if (header.value.empty()) {
+                   return crow::response(400, "UPLOAD FAILED");
+            }
+
+            std::string prof_name = header.params.at("filename");
+
+            if (prof_name.empty()) {
+                return crow::response(400, "Missing filename");
+            }
+
+            fs::path upload_dir = fs::path("user_data") / fs::path(std::to_string(user.id)) / fs::path("post_pic");
+            std::error_code error;
+
+            if (!fs::exists(upload_dir, error)) {
+                 fs::create_directories(upload_dir, error);
+            }
+
+            if (error) {
+                return crow::response(500, "Error creating user directory");
+            }
+
+            bool starts_img = false;
+
+            if (post_pic.starts_with(image.jpg)) {
+                starts_img = true;
+                if (!prof_name.ends_with(".jpg"))
+                  prof_name += ".jpg";
+            } else if (post_pic.starts_with(image.png)) {
+                starts_img = true;
+                if (!prof_name.ends_with(".png"))
+                prof_name += ".png";
+            } else if (post_pic.starts_with(image.gif)) {
+                starts_img = true;
+                if (!prof_name.ends_with(".gif"))
+                prof_name += ".gif";
+            } else if (post_pic.starts_with(image.bmp)) {
+                starts_img = true;
+                  if (!prof_name.ends_with(".bmp"))
+                prof_name += ".bmp";
+            }
+                
+             if (starts_img) {
+                std::ofstream out_file(upload_dir / prof_name, std::ofstream::out | std::ios::binary);
+                out_file.write(post_pic.data(), post_pic.length());
+                profile_picture_path = upload_dir / prof_name;
+            } else {
+                return crow::response(400, "UPLOAD FAILED: Not an image file");
+            }
         }
 
-        db << "INSERT INTO posts (user_id, content) VALUES (?, ?);" 
-           << user.id << content;
+        if (content.empty() && post_pic.empty()) {
+            return crow::response(400, "Post cannot be empty");
+        }
+
+        if (!post_pic.empty()) {
+            db << "INSERT INTO posts (user_id, content, post_pic_url) VALUES (?, ?, ?);" 
+               << user.id << content << profile_picture_path.string();
+        } else {
+            db << "INSERT INTO posts (user_id, content) VALUES (?, ?);" 
+               << user.id << content;
+        }
 
         uint32_t post_id = 0;
         db << "SELECT last_insert_rowid();" 
            >> [&post_id](const uint32_t id) {
             post_id = id;
         };
-
+ 
         crow::json::wvalue response;
         response["post_id"] = post_id;
         response["user_id"] = user.id;
+        if(!post_pic.empty()) {
+            response["post_pic_url"] = profile_picture_path.string();
+        }
         response["user_name"] = user.name;
 
         return crow::response{response};
     });
 
     CROW_ROUTE(app, "/edit_post/<int>").methods(crow::HTTPMethod::Post)([&db](const crow::request& request, const int32_t post_id) {
-        crow::json::rvalue body = crow::json::load(request.body);
-
-        if (!body || !body.has("content")) {
-            return crow::response(400, "ERROR: Invalid JSON");
-        }
-
-        std::string content = crow::json::load(request.body)["content"].s();
         current_user user = is_authorized(request, db);
 
         if (!user.logged_in || !user.verified) {
             return crow::response(400, "ERROR: Not authorized");
         }
 
-        if (content.empty()) {
-            return crow::response(400, "ERROR: Content cannot be empty");
-        }
-
         // Check if the post exists and if the user is the owner
         bool is_owner = false;
         db << "SELECT COUNT(*) FROM posts WHERE _id = ? AND user_id = ?;"
-        << post_id << user.id
-        >> [&is_owner](int32_t count) {
-            is_owner = (count > 0);
-        };
+           << post_id << user.id
+           >> [&is_owner](const int32_t count) {
+                is_owner = (count > 0);
+            };
 
         if (!is_owner) {
             return crow::response(403, "ERROR: You are not allowed to edit this post");
         }
-        db << "UPDATE posts SET content = ?, time_edited = datetime('now', 'localtime') WHERE (user_id = ? AND _id = ?);"
-           << content << user.id << post_id;
+
+        crow::multipart::message file_message(request);
+        fs::path profile_picture_path;
+        std::string content = file_message.get_part_by_name("content").body;
+        std::string post_pic = file_message.get_part_by_name("post_pic").body;
+        std::string remove_pic = file_message.get_part_by_name("remove_picture").body;
+
+        if (!post_pic.empty()) {
+            const crow::multipart::part &part_value = file_message.get_part_by_name("post_pic");
+            std::error_code error; 
+
+            std::string old_post_pic;
+            db << "SELECT post_pic_url FROM posts WHERE _id = ? AND user_id = ?;"
+               << post_id << user.id
+               >> old_post_pic;
+
+            if (!old_post_pic.empty() && !post_pic.empty()) {
+                fs::remove(fs::path(old_post_pic), error);
+            }
+
+            if (error) {
+                return crow::response(500, "Error removing old post pic");
+            }
+
+            if (part_value.body.empty()) {
+                return crow::response(400, "No file part found");
+             }
+
+            const crow::multipart::header &header = part_value.get_header_object("Content-Disposition");
+            if (header.value.empty()) {
+                   return crow::response(400, "UPLOAD FAILED");
+            }
+
+            std::string prof_name = "post_" + std::to_string(post_id) + header.params.at("filename");
+
+            if (prof_name.empty()) {
+                return crow::response(400, "Missing filename");
+            }
+
+            fs::path upload_dir = fs::path("user_data") / fs::path(std::to_string(user.id)) / fs::path("post_pic");
+            
+
+            if (!fs::exists(upload_dir, error)) {
+                 fs::create_directories(upload_dir, error);
+            }
+
+            if (error) {
+                return crow::response(500, "Error creating user directory");
+            }
+
+            bool starts_img = false;
+
+            if (post_pic.starts_with(image.jpg)) {
+                starts_img = true;
+                if (!prof_name.ends_with(".jpg"))
+                  prof_name += ".jpg";
+            } else if (post_pic.starts_with(image.png)) {
+                starts_img = true;
+                if (!prof_name.ends_with(".png"))
+                prof_name += ".png";
+            } else if (post_pic.starts_with(image.gif)) {
+                starts_img = true;
+                if (!prof_name.ends_with(".gif"))
+                prof_name += ".gif";
+            } else if (post_pic.starts_with(image.bmp)) {
+                starts_img = true;
+                  if (!prof_name.ends_with(".bmp"))
+                prof_name += ".bmp";
+            }
+                
+             if (starts_img) {
+                std::ofstream out_file(upload_dir / prof_name, std::ofstream::out | std::ios::binary);
+                out_file.write(post_pic.data(), post_pic.length());
+                profile_picture_path = upload_dir / prof_name;
+            } else {
+                return crow::response(400, "UPLOAD FAILED: Not an image file");
+            }
+        }
+
+        if (content.empty() && post_pic.empty()) {
+            return crow::response(400, "Post cannot be empty");
+        }
+
+        if (!post_pic.empty()) {
+            db << "UPDATE posts SET content = ?, post_pic_url = ?, time_edited = datetime('now', 'localtime') WHERE (user_id = ? AND _id = ?);" 
+               << content << profile_picture_path.string() << user.id << post_id;
+        } else if (!remove_pic.empty()) {
+            std::error_code error; 
+
+            std::string old_post_pic;
+            db << "SELECT post_pic_url FROM posts WHERE _id = ? AND user_id = ?;"
+               << post_id << user.id
+               >> old_post_pic;
+
+            fs::remove(fs::path(old_post_pic), error);
+
+            if (error) {
+                return crow::response(500, "Error removing old post pic");
+            }
+
+            db << "UPDATE posts SET content = ?, post_pic_url = ?, time_edited = datetime('now', 'localtime') WHERE (user_id = ? AND _id = ?);"
+               << content << nullptr << user.id << post_id;
+        } else {
+            db << "UPDATE posts SET content = ?, time_edited = datetime('now', 'localtime') WHERE (user_id = ? AND _id = ?);"
+               << content << user.id << post_id;
+        }
 
         return crow::response{200, "Post updated successfully!"};
     });
@@ -941,11 +1136,27 @@ int32_t main() {
         if (!is_owner) {
             return crow::response(403, "You are not allowed to delete this post");
         }
+        
+        std::error_code error; 
+
+        std::string old_post_pic;
+        db << "SELECT post_pic_url FROM posts WHERE _id = ? AND user_id = ?;"
+           << post_id << user.id
+           >> old_post_pic;
+
+        fs::remove(fs::path(old_post_pic), error);
+
+        if (error) {
+            return crow::response(500, "Error removing old post pic");
+        }
 
         db << "DELETE FROM post_likes WHERE post_id = ?;"
            << post_id;
 
         db << "DELETE FROM posts WHERE _id = ? AND user_id = ?;"
+           << post_id << user.id;
+
+        db << "DELETE FROM replies WHERE post_id = ? AND user_id = ?;"
            << post_id << user.id;
 
         return crow::response(200, "Post and associated likes deleted successfully");
@@ -1095,8 +1306,35 @@ int32_t main() {
     });
 
     //id/filename/
-    CROW_ROUTE(app, "/user_data/<int>/prof_pic/<string>") ([](crow::response& res, const uint32_t& user_id, const std::string& filename) {
-        fs::path filepath = fs::path("user_data") / fs::path(std::to_string(user_id)) / fs::path("prof_pic") / escape_string_decode(filename);
+    CROW_ROUTE(app, "/user_data/<int>/prof_pic/<string>") ([](crow::response& res, const uint32_t& user_id, const std::string& path) {
+        fs::path filepath = fs::path("user_data") / fs::path(std::to_string(user_id)) / fs::path("prof_pic") / fs::path(escape_string_decode(path));
+        std::ifstream file(filepath, std::ifstream::in | std::ios::binary);
+
+        if (file) {
+          std::ostringstream buffer;
+          buffer << file.rdbuf();
+
+          if (buffer.str().starts_with(image.jpg) ||
+              buffer.str().starts_with(image.png) ||
+              buffer.str().starts_with(image.gif) ||
+              buffer.str().starts_with(image.bmp)) {
+                res.set_static_file_info(filepath.string());
+                res.end();
+          } else {
+            res.code = 400;
+            res.write("Invalid image format");
+            res.end();
+          }
+        } else {
+          res.code = 400;
+          res.write("File doesn't exist");
+          res.end();
+        }
+
+    });
+
+    CROW_ROUTE(app, "/user_data/<int>/post_pic/<string>") ([](crow::response& res, const uint32_t& user_id, const std::string& path) {
+        fs::path filepath = fs::path("user_data") / fs::path(std::to_string(user_id)) / fs::path("post_pic") / fs::path(escape_string_decode(path));
         std::ifstream file(filepath, std::ifstream::in | std::ios::binary);
 
         if (file) {
@@ -1610,4 +1848,3 @@ int32_t main() {
 
     std::future<void> _a = app.bindaddr(IP).port(std::stoi(PORT)).multithreaded().run_async();
 }
-//clang++ -Wall -Wextra -fsanitize=address account.cpp -o account -std=c++23 -lwsock32 -lws2_32 -lsqlite3
