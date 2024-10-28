@@ -60,10 +60,18 @@
             <div class="col-md-8 offset-md-2">
                 <h2 class="text-center">Create a Post</h2>
                 <form id="postForm">
-                    <div class="form-group">
-                        <label for="postContent">Your Post</label>
-                        <textarea class="form-control" id="postContent" name="content" rows="4" required></textarea>
-                    </div>
+                    <form id="userForm" enctype="multipart/form-data">
+                        <input type="hidden" id="userId" name="id">
+                        
+                        <div class="form-group">
+                            <label for="postContent">Your Post</label>
+                            <textarea class="form-control" id="postContent" name="content" rows="4" required></textarea>
+                        </div>
+            
+                        <div class="form-group" id="fileGroup">
+                            <label for="file">Upload a photo:</label>
+                            <input type="file" class="form-control-file" id="post_pic" name="post_pic">
+                        </div>
                     <button type="submit" class="btn btn-success btn-block">Submit Post</button>
                 </form>
 
@@ -213,14 +221,12 @@
 
         document.getElementById('postForm').addEventListener('submit', function(e) {
             e.preventDefault();
-            const content = document.getElementById('postContent').value;
 
+            const formData = new FormData(document.getElementById('postForm'));
+            
             fetch('/submit_post', {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify({ content: content })
+                body: formData
             })
             .then(response => {
                 if (!response.ok) {
@@ -231,34 +237,37 @@
                 return response.json();
             })
             .then(data => {
-                const timestamp = new Date().toLocaleString(); 
-                const postId = data.post_id; // get post_id from response
-                const userId = data.user_id; // get user_id from response
-                const userName = data.user_name;
-                const postElement = `
-                    <div id="post-${postId}" class="card mb-3">
-                        <div class="card-body">
-                            <a class="text-muted text-left" href="./prof/${userId}">${userName}</a>
-                            <p class="card-text" id="${postId}">${content}</p>
-                            <p class="text-muted text-right">${timestamp}</p>
-                            <div class="d-flex justify-content-between align-items-center">
-                                 <div>
-                                 <button class="btn btn-primary like-button" data-post-id="${postId}" data-user-id="${userId}">Like</button>
-                                 <button class="btn btn-secondary" onclick="toggleReplyForm('${postId}')">Reply</button>
-                                 <button id="edit-${postId}" class="btn btn-secondary" onclick="edit_post('${postId}')">Edit</button>
-                                 <button id="delete_post_${postId}" class="btn btn-danger" onclick="delete_post('${postId}')">Delete</button>
-                                 </div>
-                                <span class="badge badge-info like-count">0 Likes</span>
+            const timestamp = new Date().toLocaleString();
+            const postId = data.post_id;
+            const userId = data.user_id;
+            const userName = data.user_name;
+
+            const postElement = `
+                <div id="post-${postId}" class="card mb-3">
+                    <div class="card-body">
+                        <a class="text-muted text-left" href="./prof/${userId}">${userName}</a>
+                        <p class="card-text" id="${postId}">${formData.get('content')}</p>
+                        ${data.post_pic_url ? `<img src="/./${data.post_pic_url}" alt="Post image" style="max-width: 100px; border-radius: 50%; height: 80px; width: 31%">` : ''}
+                        <p class="text-muted text-right">${timestamp}</p>
+                        <div class="d-flex justify-content-between align-items-center">
+                            <div>
+                                <button class="btn btn-primary like-button" data-post-id="${postId}" data-user-id="${userId}">Like</button>
+                                <button class="btn btn-secondary" onclick="toggleReplyForm('${postId}')">Reply</button>
+                                <button id="edit-${postId}" class="btn btn-secondary" onclick="edit_post('${postId}')">Edit</button>
+                                <button id="delete_post_${postId}" class="btn btn-danger" onclick="delete_post('${postId}')">Delete</button>
                             </div>
-                            <div id="replies-${postId}" name="replies" class="mt-3">
-                            
-                            </div>
+                            <span class="badge badge-info like-count">0 Likes</span>
+                        </div>
+                        <div id="replies-${postId}" name="replies" class="mt-3">
+                        <!-- Replies will be appended here -->
                         </div>
                     </div>
-                `;
-                document.getElementById('posts').insertAdjacentHTML('afterbegin', postElement);
-                document.getElementById('postContent').value = '';
-            })
+                </div>
+            `;
+            document.getElementById('posts').insertAdjacentHTML('afterbegin', postElement);
+            document.getElementById('postContent').value = '';
+            document.getElementById('post_pic').value = '';  // Clear the file input
+        })
             .catch(error => {
                 console.error('Error:', error);
                 alert('Error: ' + error.message);
@@ -406,33 +415,44 @@
                 alert('Error deleting that reply: ' + error.message);
             });
         }
-        function edit_post(id) {
-            const element = document.getElementById(id);
+
+        function edit_post(postId) {
+            const element = document.getElementById(postId);
             const originalContent = element.innerText;
-            document.getElementById(`edit-${id}`).style = "display:none;"
-            // Replace the content with a textarea and buttons
+            document.getElementById(`edit-${postId}`).style = "display:none;"
             element.innerHTML = `
-                <textarea class="form-control" id="editContent-${id}" rows="4">${originalContent}</textarea>
-                <button class="btn btn-success btn-sm mt-2" onclick="save_post('${id}', '${originalContent}')">Save</button>
-                <button class="btn btn-secondary btn-sm mt-2 ml-2" onclick="cancel_edit('${id}', '${originalContent}')">Cancel</button>
+                <textarea class="form-control" id="editContent-${postId}" rows="4">${originalContent}</textarea>
+                <input type="file" class="form-control-file" id="editFile-${postId}" name="post_pic">
+                <a><input type="checkbox" id="remove-picture-${postId}"> Remove picture</a>
+                <button class="btn btn-success btn-sm mt-2" onclick="save_post('${postId}', '${originalContent}')">Save</button>
+                <button class="btn btn-secondary btn-sm mt-2 ml-2" onclick="cancel_edit('${postId}', '${originalContent}')">Cancel</button>
             `;
         }
 
         function cancel_edit(id, originalContent) {
             const element = document.getElementById(id);
             document.getElementById(`edit-${id}`).style = "display:blobk;"
-            // Restore the original content and re-add the edit button
             element.innerHTML = `${originalContent}`;
         }
 
         function save_post(postId, originalContent) {
+            const formData = new FormData();
             const newContent = document.getElementById(`editContent-${postId}`).value;
+            const newFile = document.getElementById(`editFile-${postId}`).files[0];
+            const removePicture = document.getElementById(`remove-picture-${postId}`).checked;
+            
+            formData.append('content', newContent);
+            if (newFile) {
+                formData.append('post_pic', newFile);
+            }
+
+            if (document.getElementById(`remove-picture-${postId}`).checked) {
+                formData.append('remove_picture', removePicture);
+            }
+
             fetch(`/edit_post/${postId}`, {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify({ content: newContent })
+                body: formData
             })
             .then(response => {
                 if (!response.ok) {
@@ -440,13 +460,28 @@
                         throw new Error(text);
                     });
                 }
-                return response.text();
-            })
-            .then(data => {
-                // Replace the textarea with the new content and re-add the edit button
-                const element = document.getElementById(postId);
+
+                // If the status is OK, update the HTML without waiting for additional data
                 document.getElementById(`edit-${postId}`).style = "display:inline-block;";
-                element.innerHTML = `${newContent}`;
+                const element = document.getElementById(postId);
+                element.innerHTML = newContent;
+
+                // Handle image update or removal based on the form input
+                const imageElement = document.querySelector(`#post-${postId} img`);
+                if (removePicture && imageElement) {
+                    imageElement.remove();
+                } else if (newFile) {
+                    // If a new picture was uploaded, update the image or add it
+                    if (imageElement) {
+                        imageElement.src = URL.createObjectURL(newFile);
+                    } else {
+                        const newImage = document.createElement('img');
+                        newImage.src = URL.createObjectURL(newFile);
+                        newImage.alt = "Post image";
+                        newImage.style = "border-radius: 1em;height: 50%;width: 49%;";
+                        element.insertAdjacentElement('afterend', newImage);
+                    }
+                }
             })
             .catch(error => {
                 console.error('Error:', error);

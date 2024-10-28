@@ -40,7 +40,7 @@
                     <td>{{name}}</td>
                     <td>
                         {{#profile_picture}}
-                        <img src="/.{{profile_picture}}" alt="Profile Picture" style="max-width: 100px; border-radius: 50%; height: 80px; width: 31%">
+                        <img src="/./{{profile_picture}}" alt="Profile Picture" style="max-width: 100px; border-radius: 50%; height: 80px; width: 31%">
                         {{/profile_picture}}
                     </td>
                 </tr>
@@ -137,23 +137,77 @@
             }
     });
 
-        function edit_post(id) {
-            const element = document.getElementById(id);
+    function edit_post(postId) {
+            const element = document.getElementById(postId);
             const originalContent = element.innerText;
-            document.getElementById(`edit-${id}`).style = "display:none;"
-            // Replace the content with a textarea and buttons
+            document.getElementById(`edit-${postId}`).style = "display:none;"
             element.innerHTML = `
-                <textarea class="form-control" id="editContent-${id}" rows="4">${originalContent}</textarea>
-                <button class="btn btn-success btn-sm mt-2" onclick="save_post('${id}', '${originalContent}')">Save</button>
-                <button class="btn btn-secondary btn-sm mt-2 ml-2" onclick="cancel_edit('${id}', '${originalContent}')">Cancel</button>
+                <textarea class="form-control" id="editContent-${postId}" rows="4">${originalContent}</textarea>
+                <input type="file" class="form-control-file" id="editFile-${postId}" name="post_pic">
+                <a><input type="checkbox" id="remove-picture-${postId}"> Remove picture</a>
+                <button class="btn btn-success btn-sm mt-2" onclick="save_post('${postId}', '${originalContent}')">Save</button>
+                <button class="btn btn-secondary btn-sm mt-2 ml-2" onclick="cancel_edit('${postId}', '${originalContent}')">Cancel</button>
             `;
         }
 
         function cancel_edit(id, originalContent) {
             const element = document.getElementById(id);
             document.getElementById(`edit-${id}`).style = "display:blobk;"
-            // Restore the original content and re-add the edit button
             element.innerHTML = `${originalContent}`;
+        }
+
+        function save_post(postId, originalContent) {
+            const formData = new FormData();
+            const newContent = document.getElementById(`editContent-${postId}`).value;
+            const newFile = document.getElementById(`editFile-${postId}`).files[0];
+            const removePicture = document.getElementById(`remove-picture-${postId}`).checked;
+            
+            formData.append('content', newContent);
+            if (newFile) {
+                formData.append('post_pic', newFile);
+            }
+
+            if (document.getElementById(`remove-picture-${postId}`).checked) {
+                formData.append('remove_picture', removePicture);
+            }
+
+            fetch(`/edit_post/${postId}`, {
+                method: 'POST',
+                body: formData
+            })
+            .then(response => {
+                if (!response.ok) {
+                    return response.text().then(text => {
+                        throw new Error(text);
+                    });
+                }
+
+                // If the status is OK, update the HTML without waiting for additional data
+                document.getElementById(`edit-${postId}`).style = "display:inline-block;";
+                const element = document.getElementById(postId);
+                element.innerHTML = newContent;
+
+                // Handle image update or removal based on the form input
+                const imageElement = document.querySelector(`#post-${postId} img`);
+                if (removePicture && imageElement) {
+                    imageElement.remove();
+                } else if (newFile) {
+                    // If a new picture was uploaded, update the image or add it
+                    if (imageElement) {
+                        imageElement.src = URL.createObjectURL(newFile);
+                    } else {
+                        const newImage = document.createElement('img');
+                        newImage.src = URL.createObjectURL(newFile);
+                        newImage.alt = "Post image";
+                        newImage.style = "border-radius: 1em;height: 50%;width: 49%;";
+                        element.insertAdjacentElement('afterend', newImage);
+                    }
+                }
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                alert('Error updating the post: ' + error.message);
+            });
         }
 
         function edit_reply(replyId) {
