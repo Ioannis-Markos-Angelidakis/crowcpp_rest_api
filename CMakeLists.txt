@@ -1,37 +1,35 @@
 cmake_minimum_required(VERSION 3.20)
 
-project(MyCrowProject LANGUAGES CXX)
+set(CMAKE_CXX_COMPILER "clang++")
 
-set(CMAKE_CXX_STANDARD 23)
-set(CMAKE_CXX_STANDARD_REQUIRED ON)
+project(crowdb)
 
-# FetchContent module to download dependencies
-include(FetchContent)
+add_executable(crowdb crowdb.cpp)
 
-# CrowCpp
-FetchContent_Declare(
-  CrowCpp
-  GIT_REPOSITORY https://github.com/CrowCpp/Crow.git
-  GIT_TAG master 
-)
-FetchContent_MakeAvailable(CrowCpp)
-
-# SqliteModernCpp
-FetchContent_Declare(
-  SqliteModernCpp
-  GIT_REPOSITORY https://github.com/SqliteModernCpp/sqlite_modern_cpp.git
-  GIT_TAG master  
-)
-FetchContent_MakeAvailable(SqliteModernCpp)
-
-add_executable(${PROJECT_NAME} account.cpp)
-
-# Link CrowCpp and SqliteModernCpp
-target_link_libraries(${PROJECT_NAME}
-  PRIVATE
-    Crow::Crow
-    sqlite_modern_cpp
+set_target_properties(crowdb PROPERTIES
+    CXX_STANDARD 26
+    CXX_STANDARD_REQUIRED ON
 )
 
-# Include directories for SqliteModernCpp (if needed)
-target_include_directories(${PROJECT_NAME} PRIVATE ${SqliteModernCpp_SOURCE_DIR})
+target_compile_options(crowdb PRIVATE
+    -Wall
+    -Wextra
+    -Wpedantic
+    -fsanitize=address
+)
+
+target_link_options(crowdb PRIVATE
+    -fsanitize=address
+)
+
+# Conditionally link Windows-specific libraries
+if(WIN32)
+    set(EXTRA_LIBS wsock32 ws2_32)
+else()
+    set(EXTRA_LIBS "")
+endif()
+
+target_link_libraries(crowdb PRIVATE sqlite3 ${EXTRA_LIBS})
+
+# Copy templates directory to build directory
+file(COPY "${CMAKE_SOURCE_DIR}/templates" DESTINATION "${CMAKE_BINARY_DIR}")
